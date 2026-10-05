@@ -8,7 +8,7 @@ export default function WordSubmissionWidget({
     wordList,
     getPlayerName,
     currentUserId,
-    title = "Shared Word List",
+    title = "Shared Keyword List",
     placeholder = "Enter a one-word noun",
 }) {
     return (
@@ -26,7 +26,7 @@ export default function WordSubmissionWidget({
                     type="submit"
                     className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
                 >
-                    ADD WORD
+                    ADD KEYWORD
                 </button>
             </form>
 
