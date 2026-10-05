@@ -508,6 +508,23 @@ export default function GameRoom() {
     }
   };
 
+  const handleRemoveWord = async (index) => {
+    if (!sessionId || index < 0 || index >= wordList.length) return;
+
+    const updatedWords = wordList.filter((_, i) => i !== index);
+    setWordList(updatedWords);
+
+    const { error } = await supabase
+      .from('game_sessions')
+      .update({ word_list: updatedWords })
+      .eq('id', sessionId);
+
+    if (error) {
+      console.error('Error removing word:', error);
+      setWordList(wordList);
+    }
+  };
+
   // Handle Giving a Clue
   const handleGiveClue = async (e) => {
     e.preventDefault();
@@ -789,8 +806,10 @@ export default function GameRoom() {
                         newWord={newWord}
                         setNewWord={setNewWord}
                         onAddWord={handleAddWord}
+                        onRemoveWord={handleRemoveWord}
                         wordList={wordList}
                         getPlayerName={getPlayerName}
+                        currentUserId={CLIENT_ID}
                       />
                     </div>
                   )}
@@ -897,8 +916,10 @@ export default function GameRoom() {
                     newWord={newWord}
                     setNewWord={setNewWord}
                     onAddWord={handleAddWord}
+                    onRemoveWord={handleRemoveWord}
                     wordList={wordList}
                     getPlayerName={getPlayerName}
+                    currentUserId={CLIENT_ID}
                   />
                 </div>
               ) : (
@@ -1063,8 +1084,10 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={setNewWord}
                 onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
               />
 
             </div>
