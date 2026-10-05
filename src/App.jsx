@@ -67,6 +67,13 @@ const WIN_PHRASES = [
   'CHEF\'S KISS!',
   'CRUSHED IT!',
 ];
+const LOSS_PHRASES = [
+  'OOF!',
+  'NOT TODAY!',
+  'SWING AND A MISS!',
+  'TOUGH BREAK!',
+  'BIG WHIFF!',
+];
 
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
@@ -108,6 +115,7 @@ export default function GameRoom() {
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
   const winPhraseRef = useRef(null);
+  const lossPhraseRef = useRef(null);
 
   useEffect(() => {
     if (!roundWon) winPhraseRef.current = null;
@@ -912,6 +920,18 @@ export default function GameRoom() {
   const pastKeywordPercent = pastKeywords.length === 0
     ? 0
     : Math.round((pastKeywordCorrect / pastKeywords.length) * 100);
+  const roundLost = gameStatus === 'guesser_turn' && visibleClues.length === 0;
+
+  useEffect(() => {
+    if (!roundLost) lossPhraseRef.current = null;
+  }, [roundLost]);
+
+  const currentLossPhrase = () => {
+    if (!lossPhraseRef.current) {
+      lossPhraseRef.current = LOSS_PHRASES[Math.floor(Math.random() * LOSS_PHRASES.length)];
+    }
+    return lossPhraseRef.current;
+  };
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -946,11 +966,11 @@ export default function GameRoom() {
         <div className="md:col-span-2 flex flex-col gap-6">
 
           {/* GUESSER TURN PHASE: no clues left, so the round is lost */}
-          {gameStatus === 'guesser_turn' && visibleClues.length === 0 && (
+          {roundLost && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
               <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg mx-auto shadow-2xl text-center">
                 <h2 className="text-3xl font-black text-rose-400 tracking-wider">
-                  ROUND LOST
+                  {currentLossPhrase()}
                 </h2>
                 <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
                   <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
