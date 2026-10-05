@@ -749,7 +749,12 @@ export default function GameRoom() {
     }
   }, [allCluesSubmitted, submittedClues, gameStatus]);
 
-
+  const exactDuplicateClues = getAutoDeduplicatedClues(submittedClues);
+  const visibleClues = submittedClues.filter((c) => {
+    const norm = normalizeClue(c.clue);
+    return !invalidClues.includes(norm) && !exactDuplicateClues.has(norm);
+  });
+  const keyWordText = typeof currentWord === 'object' ? currentWord.text : currentWord;
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -783,8 +788,34 @@ export default function GameRoom() {
       <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 flex flex-col gap-6">
 
+          {/* GUESSER TURN PHASE: no clues left, so the round is lost */}
+          {gameStatus === 'guesser_turn' && visibleClues.length === 0 && (
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+              <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg mx-auto shadow-2xl text-center">
+                <h2 className="text-3xl font-black text-rose-400 tracking-wider">
+                  ROUND LOST
+                </h2>
+                <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
+                  <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
+                  <p className="text-3xl font-extrabold text-amber-300">
+                    {keyWordText}
+                  </p>
+                </div>
+                <button
+                  onClick={handleNextWord}
+                  className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                >
+                  <span>NEXT WORD</span>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* GUESSER TURN PHASE */}
-          {gameStatus === 'guesser_turn' && (
+          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
 
               {/* Timer & Phase Header */}
@@ -837,42 +868,28 @@ export default function GameRoom() {
                     </p>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {(() => {
-                        // Get exact duplicates set
-                        const exactDupes = getAutoDeduplicatedClues(submittedClues);
+                      {visibleClues.map((c, idx) => {
+                        const isFlashed = flashedClueText === c.clue;
 
-                        return submittedClues
-                          .filter((c) => {
-                            const norm = c.clue.trim().toLowerCase();
-                            const isManuallyHidden = invalidClues.includes(norm);
-                            const isExactDup = exactDupes.has(norm);
-
-                            // Exclude both manually hidden clues and exact duplicates!
-                            return !isManuallyHidden && !isExactDup;
-                          })
-                          .map((c, idx) => {
-                            const isFlashed = flashedClueText === c.clue;
-
-                            return (
-                              <div
-                                key={idx}
-                                onClick={() => !isGuesser && handleFlashClue(c.clue)}
-                                className={`p-4 rounded-xl text-center border transition-all select-none relative overflow-hidden ${!isGuesser ? 'cursor-pointer' : 'cursor-default'
-                                  } ${isFlashed
-                                    ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_25px_rgba(251,191,36,0.8)] scale-105 z-10'
-                                    : 'bg-slate-700/80 border-slate-600/80 text-slate-100'
-                                  }`}
-                              >
-                                <p className={`text-2xl font-extrabold ${isFlashed ? 'text-slate-950' : 'text-amber-300'}`}>
-                                  {c.clue}
-                                </p>
-                                <p className={`text-xs italic mt-1 ${isFlashed ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                                  by {getPlayerName(c.playerKey, c.username)}
-                                </p>
-                              </div>
-                            );
-                          });
-                      })()}
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => !isGuesser && handleFlashClue(c.clue)}
+                            className={`p-4 rounded-xl text-center border transition-all select-none relative overflow-hidden ${!isGuesser ? 'cursor-pointer' : 'cursor-default'
+                              } ${isFlashed
+                                ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_25px_rgba(251,191,36,0.8)] scale-105 z-10'
+                                : 'bg-slate-700/80 border-slate-600/80 text-slate-100'
+                              }`}
+                          >
+                            <p className={`text-2xl font-extrabold ${isFlashed ? 'text-slate-950' : 'text-amber-300'}`}>
+                              {c.clue}
+                            </p>
+                            <p className={`text-xs italic mt-1 ${isFlashed ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                              by {getPlayerName(c.playerKey, c.username)}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
