@@ -862,12 +862,6 @@ export default function GameRoom() {
 
                   {/* Visible Clues Grid (Shown to BOTH Guesser and Clue Givers) */}
                   <div className="flex flex-col gap-3">
-                    <p className="text-xs text-slate-400 italic">
-                      {isGuesser
-                        ? 'Watch the clues carefully! Clue givers can tap them to highlight key hints.'
-                        : 'Click any clue to trigger a glowing shine on everyone’s screen!'}
-                    </p>
-
                     <div className="grid grid-cols-2 gap-3">
                       {visibleClues.map((c, idx) => {
                         const isFlashed = flashedClueText === c.clue;
