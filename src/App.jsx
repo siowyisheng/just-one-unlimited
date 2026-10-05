@@ -1413,9 +1413,9 @@ export default function GameRoom() {
                 {pastKeywords.map((item, idx) => (
                   <span
                     key={`${item.text}-${idx}`}
-                    className={`text-xs font-bold px-2 py-0.5 rounded-full border ${item.correct
-                      ? 'border-emerald-400 text-emerald-300'
-                      : 'border-rose-400 text-rose-300'
+                    className={`text-xs font-bold px-2 py-0.5 rounded-full border text-amber-500 ${item.correct
+                      ? 'border-emerald-400'
+                      : 'border-rose-400'
                       }`}
                   >
                     {item.text}
