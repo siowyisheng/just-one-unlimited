@@ -483,7 +483,7 @@ export default function GameRoom() {
 
   const handleAddWord = async (e) => {
     e.preventDefault();
-    const trimmed = newWord.trim();
+    const trimmed = newWord.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
     // Store word as an object with author details
