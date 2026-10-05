@@ -688,7 +688,7 @@ export default function GameRoom() {
   // 4. Handle Guesser Submission
   const handleGuessSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = guessInput.trim().replace(/\s+/g, ''); // Strip spaces
+    const trimmed = guessInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
     const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
@@ -870,16 +870,13 @@ export default function GameRoom() {
                   {/* Guesser Input Form (Only visible to the Guesser) */}
                   {isGuesser && (
                     <div className="bg-slate-900/60 p-6 rounded-xl border border-slate-700 flex flex-col items-center gap-4 text-center">
-                      <h2 className="text-2xl font-black text-amber-400 tracking-wide">
-                        ENTER YOUR GUESS
-                      </h2>
                       <form onSubmit={handleGuessSubmit} className="flex justify-center w-full">
                         <input
                           type="text"
                           value={guessInput}
-                          onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, ''))}
+                          onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
                           aria-label="Guess keyword"
-                          className="w-64 max-w-[60%] bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium"
+                          className="w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium uppercase"
                         />
                         <button
                           type="submit"
