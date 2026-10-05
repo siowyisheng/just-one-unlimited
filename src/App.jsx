@@ -910,7 +910,7 @@ export default function GameRoom() {
                             <p className={clueWordClass}>
                               {c.clue}
                             </p>
-                            <p className={`text-xs italic mt-1 ${isFlashed ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
+                            <p className="text-xs italic mt-1 text-slate-300">
                               by {getPlayerName(c.playerKey, c.username)}
                             </p>
                           </div>
