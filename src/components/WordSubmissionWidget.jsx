@@ -41,7 +41,7 @@ export default function WordSubmissionWidget({
 
                 {wordList.length === 0 ? (
                     <p className="text-slate-500 text-center py-8 text-sm italic">
-                        No words added yet. Type a word above!
+                        Add a keyword above!
                     </p>
                 ) : (
                     <div className="flex flex-wrap gap-2">
