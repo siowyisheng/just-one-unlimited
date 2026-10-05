@@ -35,7 +35,7 @@ export default function WordSubmissionWidget({
                 <h3 className="text-sm font-semibold mb-3 text-slate-300 flex justify-between items-center">
                     <span>{title}</span>
                     <span className="text-xs font-normal text-slate-400">
-                        {wordList.length} {wordList.length === 1 ? 'word' : 'words'} in pool
+                        {wordList.length} {wordList.length === 1 ? 'keyword' : 'keywords'} in pool
                     </span>
                 </h3>
 
