@@ -98,6 +98,8 @@ export default function GameRoom() {
 
   // Animated Dots State for "STARTING SOON..."
   const [animatedDots, setAnimatedDots] = useState('.');
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyResetRef = useRef(null);
 
   // Cycling animation effect for 1, 2, 3 periods
   useEffect(() => {
@@ -441,6 +443,47 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
+  const copySessionLink = async () => {
+    if (!sessionId) return;
+
+    const shareUrl = `${window.location.origin}${window.location.pathname}?sessionId=${sessionId}`;
+    let copied = false;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+
+    if (!copied) {
+      const textarea = document.createElement('textarea');
+      textarea.value = shareUrl;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.top = '0';
+      textarea.style.left = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    if (!copied) return;
+
+    setLinkCopied(true);
+    window.clearTimeout(copyResetRef.current);
+    copyResetRef.current = window.setTimeout(() => setLinkCopied(false), 1600);
+  };
+
+  useEffect(() => {
+    return () => window.clearTimeout(copyResetRef.current);
+  }, []);
+
   // Handler for submitting edited username
   const handleSaveUsername = async (newName) => {
     const trimmed = newName.trim();
@@ -680,9 +723,26 @@ export default function GameRoom() {
         <h1 className="text-4xl font-extrabold tracking-tight text-amber-400">
           Just One Unlimited
         </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Collaborative Word Game Session
-        </p>
+        {sessionId && (
+          <button
+            type="button"
+            onClick={copySessionLink}
+            aria-label={linkCopied ? 'Session link copied' : 'Copy session link'}
+            title={linkCopied ? 'Link copied' : 'Copy session link'}
+            className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 text-sm font-mono tracking-wide cursor-pointer transition-colors"
+          >
+            <span>{sessionId.slice(0, 8)}</span>
+            {linkCopied ? (
+              <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
+          </button>
+        )}
       </header>
 
       {/* Main Layout Grid */}
@@ -1053,7 +1113,7 @@ export default function GameRoom() {
 
                 {/* Status Helper Message (Only shown when under 5 words) */}
                 {wordList.length < 5 && (
-                  <p className="text-xs text-amber-400/80 mt-3 font-medium flex items-center gap-1.5">
+                  <p className="text-xs text-amber-400/80 mt-5 font-medium flex items-center gap-1.5">
                     5+ words to start ({wordList.length}/5 added)
                   </p>
                 )}
