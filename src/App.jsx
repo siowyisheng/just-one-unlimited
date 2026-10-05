@@ -440,6 +440,14 @@ export default function GameRoom() {
     return count > 1;
   };
 
+  // A round can start when some online player did not write at least one keyword.
+  const roundCanStart = (words, players) => {
+    if (!words?.length || !players?.length) return false;
+    return players.some((player) =>
+      words.some((word) => typeof word === 'object' && word.authorId !== player.key)
+    );
+  };
+
   // Helper: Start Next Round Logic
   // Helper: Start Next Round Logic with Weighted Word Selection
   const startNextRound = async (availableWords, playerList, playedEntry) => {
@@ -645,6 +653,11 @@ export default function GameRoom() {
     if (error) {
       console.error('Error adding word:', error);
       setWordList(wordList);
+      return;
+    }
+
+    if (gameStatus === 'game_over' && roundCanStart(updatedWords, onlinePlayers)) {
+      await startNextRound(updatedWords, onlinePlayers);
     }
   };
 
@@ -1149,14 +1162,25 @@ export default function GameRoom() {
           {/* GAME OVER VIEW */}
           {/* 1. GAME OVER VIEW */}
           {gameStatus === 'game_over' ? (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
-              <h2 className="text-5xl font-extrabold text-red-500 mb-4 tracking-wider">
-                NO KEYWORDS LEFT
-              </h2>
-              <p className="text-slate-300">
-                Add more keywords to continue.
-              </p>
-            </div>
+            <>
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
+                <h2 className="text-5xl font-extrabold text-red-500 mb-4 tracking-wider">
+                  NO KEYWORDS LEFT
+                </h2>
+                <p className="text-slate-300">
+                  Add more keywords to continue.
+                </p>
+              </div>
+              <WordSubmissionWidget
+                newWord={newWord}
+                setNewWord={setNewWord}
+                onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
+                wordList={wordList}
+                getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
+              />
+            </>
           ) : gameStatus === 'in_round' ? (
             /* MAIN GAME DIV */
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
