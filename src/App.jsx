@@ -1126,7 +1126,7 @@ export default function GameRoom() {
 
                   {hasSubmittedMyClue && !allCluesSubmitted && (
                     <p className={waitingLineClass}>
-                      Waiting for other clues...
+                      Waiting for other clue givers...
                     </p>
                   )}
 
