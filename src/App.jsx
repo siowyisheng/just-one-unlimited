@@ -1019,17 +1019,17 @@ export default function GameRoom() {
 
                   {/* Clue Input Form or Waiting Text */}
                   {!hasSubmittedMyClue && (
-                    <form onSubmit={handleGiveClue} className="flex gap-2">
+                    <form onSubmit={handleGiveClue} className="flex justify-center">
                       <input
                         type="text"
                         value={myClueInput}
                         onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, ''))} // Reject spaces
-                        placeholder="Enter 1-word clue (no spaces)..."
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
+                        placeholder="Enter a one-word clue"
+                        className="w-64 max-w-[60%] bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-sky-400 transition-colors"
                       />
                       <button
                         type="submit"
-                        className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap"
+                        className="px-5 py-3 bg-sky-400 hover:bg-sky-300 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
                       >
                         GIVE CLUE
                       </button>
