@@ -9,7 +9,7 @@ export default function WordSubmissionWidget({
     getPlayerName,
     currentUserId,
     title = "Shared Keyword List",
-    placeholder = "Enter a one-word noun",
+    placeholder = "Enter a noun",
 }) {
     return (
         <div className="flex flex-col gap-4">
