@@ -983,7 +983,7 @@ export default function GameRoom() {
                     Guessing Phase
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-amber-400">
+                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
                   ⏱️ {timerSeconds}s
                 </div>
               </div>
@@ -1147,7 +1147,7 @@ export default function GameRoom() {
                     Clue-Giving Phase
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-amber-400">
+                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
                   ⏱️ {clueWaitSeconds}s
                 </div>
               </div>
