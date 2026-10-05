@@ -59,6 +59,14 @@ const getInitialUsername = () => {
 };
 
 const CLIENT_ID = getPersistentClientId();
+const CLUE_GLOW_MS = 1000;
+const WIN_PHRASES = [
+  'NAILED IT!',
+  'BIG BRAIN!',
+  'TOO EASY!',
+  'CHEF\'S KISS!',
+  'CRUSHED IT!',
+];
 
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
@@ -88,6 +96,18 @@ export default function GameRoom() {
   const [guessInput, setGuessInput] = useState('');
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
+  const winPhraseRef = useRef(null);
+
+  useEffect(() => {
+    if (!roundWon) winPhraseRef.current = null;
+  }, [roundWon]);
+
+  const currentWinPhrase = () => {
+    if (!winPhraseRef.current) {
+      winPhraseRef.current = WIN_PHRASES[Math.floor(Math.random() * WIN_PHRASES.length)];
+    }
+    return winPhraseRef.current;
+  };
 
   // Clue Glow / Flash State
   const [flashedClueText, setFlashedClueText] = useState(null);
@@ -273,11 +293,25 @@ export default function GameRoom() {
             setFlashedClueText(flash.clueText);
             setTimeout(() => {
               if (flashClearTokenRef.current === token) setFlashedClueText(null);
-            }, 400); // 0.4s shine duration
+            }, CLUE_GLOW_MS);
           }
         }
       }
     );
+
+    // Clue glow for everyone except the clicker, who already glowed locally.
+    channel.on('broadcast', { event: 'clue_flash' }, ({ payload }) => {
+      const clueText = payload?.clueText;
+      const flashId = payload?.flashId;
+      if (!clueText) return;
+      if (flashId && seenFlashIdsRef.current.has(flashId)) return;
+      if (flashId) seenFlashIdsRef.current.add(flashId);
+      const token = ++flashClearTokenRef.current;
+      setFlashedClueText(clueText);
+      setTimeout(() => {
+        if (flashClearTokenRef.current === token) setFlashedClueText(null);
+      }, CLUE_GLOW_MS);
+    });
 
     // Presence listener
     channel.on('presence', { event: 'sync' }, () => {
@@ -669,7 +703,13 @@ export default function GameRoom() {
     setFlashedClueText(clueText);
     setTimeout(() => {
       if (flashClearTokenRef.current === token) setFlashedClueText(null);
-    }, 400);
+    }, CLUE_GLOW_MS);
+
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'clue_flash',
+      payload: { clueText, flashId },
+    });
 
     const { error } = await supabase
       .from('game_sessions')
@@ -849,7 +889,7 @@ export default function GameRoom() {
 
           {/* GUESSER TURN PHASE */}
           {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative">
 
               {/* Timer & Phase Header */}
               <div className="flex items-center justify-between border-b border-slate-700 pb-4">
@@ -940,7 +980,7 @@ export default function GameRoom() {
                     <div className="flex flex-col items-center gap-4 bg-emerald-500/10 border border-emerald-500/40 p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in">
                       <span className="text-5xl">🎉</span>
                       <h2 className="text-3xl font-black text-emerald-400 tracking-wider">
-                        YOU WON THE ROUND!
+                        {currentWinPhrase()}
                       </h2>
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
                         <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
