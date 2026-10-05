@@ -991,6 +991,12 @@ export default function GameRoom() {
           ) : gameStatus === 'in_round' ? (
             /* MAIN GAME DIV */
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+              <div className="flex items-center gap-2 border-b border-slate-700 pb-4">
+                <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-yellow-400' : 'bg-emerald-500'}`}></span>
+                <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                  Clue-Giving Phase
+                </span>
+              </div>
               {isGuesser ? (
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
