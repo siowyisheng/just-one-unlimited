@@ -121,9 +121,8 @@ export default function GameRoom() {
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
   const roundStartTimeRef = useRef(null);
 
-  // Animated Dots State for "STARTING SOON..." and the clue-giving wait line
+  // Animated Dots State for "STARTING SOON..."
   const [animatedDots, setAnimatedDots] = useState('.');
-  const [clueWaitDots, setClueWaitDots] = useState('.');
   const [linkCopied, setLinkCopied] = useState(false);
   const copyResetRef = useRef(null);
 
@@ -200,24 +199,6 @@ export default function GameRoom() {
       if (interval) clearInterval(interval);
     };
   }, [gameStatus, roundWon]);
-
-  useEffect(() => {
-    const waitingForClues = gameStatus === 'in_round' && currentGuesserId === CLIENT_ID;
-    if (!waitingForClues) {
-      setClueWaitDots('.');
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setClueWaitDots((prev) => {
-        if (prev === '.') return '..';
-        if (prev === '..') return '...';
-        return '.';
-      });
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [gameStatus, currentGuesserId]);
 
   // Ticking timer for the clue-giving phase, shown to every player
   useEffect(() => {
@@ -847,6 +828,7 @@ export default function GameRoom() {
   const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
   const keywordClass = 'text-2xl font-extrabold text-amber-500';
+  const waitingLineClass = 'text-center text-slate-100 font-medium py-3 italic animate-pulse';
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -1090,9 +1072,9 @@ export default function GameRoom() {
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
-                    <h2 className="text-3xl font-extrabold text-amber-400">
-                      Waiting for clue givers{clueWaitDots}
-                    </h2>
+                    <p className={waitingLineClass}>
+                      Waiting for clue givers
+                    </p>
                   </div>
 
                   <WordSubmissionWidget
@@ -1143,7 +1125,7 @@ export default function GameRoom() {
                   )}
 
                   {hasSubmittedMyClue && !allCluesSubmitted && (
-                    <p className="text-center text-amber-400/90 font-medium py-3 italic animate-pulse">
+                    <p className={waitingLineClass}>
                       Waiting for other clues...
                     </p>
                   )}
