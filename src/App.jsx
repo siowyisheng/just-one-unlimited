@@ -1111,7 +1111,7 @@ export default function GameRoom() {
                   {/* Chosen Word Banner */}
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
-                      Chosen Word
+                      Keyword
                     </p>
                     <p className={keywordClass}>
                       {keyWordText}
