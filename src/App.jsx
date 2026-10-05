@@ -873,19 +873,19 @@ export default function GameRoom() {
                       <h2 className="text-2xl font-black text-amber-400 tracking-wide">
                         ENTER YOUR GUESS
                       </h2>
-                      <form onSubmit={handleGuessSubmit} className="flex gap-2 w-full max-w-md">
+                      <form onSubmit={handleGuessSubmit} className="flex justify-center w-full">
                         <input
                           type="text"
                           value={guessInput}
                           onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, ''))}
-                          placeholder="One word guess (no spaces)..."
-                          className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium"
+                          aria-label="Guess keyword"
+                          className="w-64 max-w-[60%] bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium"
                         />
                         <button
                           type="submit"
-                          className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg"
+                          className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
                         >
-                          SUBMIT GUESS
+                          GUESS KEYWORD
                         </button>
                       </form>
                     </div>
