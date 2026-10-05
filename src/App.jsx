@@ -35,6 +35,10 @@ const playVictorySound = () => {
   }
 };
 
+const normalizeKeyword = (value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
+
+const keywordText = (item) => (typeof item === 'object' && item !== null ? item.text : item);
+
 const generateRandomUsername = () => {
   const randomId = Math.floor(1000 + Math.random() * 9000);
   return `Player_${randomId}`;
@@ -79,6 +83,7 @@ export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
   const [wordList, setWordList] = useState([]);
   const [newWord, setNewWord] = useState('');
+  const [keywordError, setKeywordError] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Username & Presence State
@@ -640,10 +645,27 @@ export default function GameRoom() {
     }
   };
 
+  const updateNewWord = (value) => {
+    setNewWord(value);
+    if (keywordError) setKeywordError('');
+  };
+
   const handleAddWord = async (e) => {
     e.preventDefault();
-    const trimmed = newWord.trim().replace(/\s+/g, '').toUpperCase();
+    const trimmed = normalizeKeyword(newWord);
     if (!trimmed || !sessionId) return;
+
+    const alreadyInList = wordList.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    const alreadyPlayed = playedKeywords.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    if (alreadyInList) {
+      setKeywordError('This keyword is already in the Shared Keyword List.');
+      return;
+    }
+    if (alreadyPlayed) {
+      setKeywordError('This keyword is already a past keyword.');
+      return;
+    }
+    setKeywordError('');
 
     // Store word as an object with author details
     const newEntry = {
@@ -1094,12 +1116,13 @@ export default function GameRoom() {
                     <div className="pt-4 border-t border-slate-700/60">
                       <WordSubmissionWidget
                         newWord={newWord}
-                        setNewWord={setNewWord}
+                        setNewWord={updateNewWord}
                         onAddWord={handleAddWord}
                         onRemoveWord={handleRemoveWord}
                         wordList={wordList}
                         getPlayerName={getPlayerName}
                         currentUserId={CLIENT_ID}
+                        keywordError={keywordError}
                       />
                     </div>
                   )}
@@ -1190,12 +1213,13 @@ export default function GameRoom() {
               </div>
               <WordSubmissionWidget
                 newWord={newWord}
-                setNewWord={setNewWord}
+                setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
                 currentUserId={CLIENT_ID}
+                keywordError={keywordError}
               />
             </>
           ) : gameStatus === 'in_round' ? (
@@ -1223,12 +1247,13 @@ export default function GameRoom() {
 
                   <WordSubmissionWidget
                     newWord={newWord}
-                    setNewWord={setNewWord}
+                    setNewWord={updateNewWord}
                     onAddWord={handleAddWord}
                     onRemoveWord={handleRemoveWord}
                     wordList={wordList}
                     getPlayerName={getPlayerName}
                     currentUserId={CLIENT_ID}
+                    keywordError={keywordError}
                   />
                 </div>
               ) : (
@@ -1390,12 +1415,13 @@ export default function GameRoom() {
 
               <WordSubmissionWidget
                 newWord={newWord}
-                setNewWord={setNewWord}
+                setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
                 currentUserId={CLIENT_ID}
+                keywordError={keywordError}
               />
 
             </div>

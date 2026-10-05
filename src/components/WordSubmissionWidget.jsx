@@ -8,27 +8,37 @@ export default function WordSubmissionWidget({
     wordList,
     getPlayerName,
     currentUserId,
+    keywordError = "",
     title = "Shared Keyword List",
     placeholder = "Enter a noun or name",
 }) {
     return (
         <div className="flex flex-col gap-4">
             {/* Add Word Form */}
-            <form onSubmit={onAddWord} className="flex justify-center">
-                <input
-                    type="text"
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                    placeholder={placeholder}
-                    className="w-64 max-w-[60%] text-center h-[58px] box-border bg-slate-800 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 text-2xl font-extrabold leading-[56px] text-amber-500 placeholder-shown:text-base placeholder-shown:font-normal placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-colors"
-                />
-                <button
-                    type="submit"
-                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
-                >
-                    ADD KEYWORD
-                </button>
-            </form>
+            <div className="flex flex-col gap-2">
+                <form onSubmit={onAddWord} className="flex justify-center">
+                    <input
+                        type="text"
+                        value={newWord}
+                        onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        placeholder={placeholder}
+                        aria-invalid={keywordError ? "true" : "false"}
+                        aria-describedby={keywordError ? "add-keyword-error" : undefined}
+                        className={`w-64 max-w-[60%] text-center h-[58px] box-border bg-slate-800 border border-r-0 rounded-l-xl rounded-r-none px-4 text-2xl font-extrabold leading-[56px] text-amber-500 placeholder-shown:text-base placeholder-shown:font-normal placeholder:text-slate-500 focus:outline-none transition-colors ${keywordError ? "border-rose-500 focus:border-rose-400" : "border-slate-700 focus:border-amber-400"}`}
+                    />
+                    <button
+                        type="submit"
+                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                    >
+                        ADD KEYWORD
+                    </button>
+                </form>
+                {keywordError ? (
+                    <p id="add-keyword-error" role="alert" className="text-center text-sm font-medium text-rose-400">
+                        {keywordError}
+                    </p>
+                ) : null}
+            </div>
 
             {/* Shared Word List Display */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 min-h-[160px]">
