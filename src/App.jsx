@@ -91,6 +91,10 @@ export default function GameRoom() {
 
   // Clue Glow / Flash State
   const [flashedClueText, setFlashedClueText] = useState(null);
+  // Flash ids already shown on this client. The clicker records one before the
+  // write, so the database echo does not play the glow a second time.
+  const seenFlashIdsRef = useRef(new Set());
+  const flashClearTokenRef = useRef(0);
 
   // Timer State
   const [timerSeconds, setTimerSeconds] = useState(0);
@@ -255,9 +259,22 @@ export default function GameRoom() {
           if (data.round_won) playVictorySound();
           setRoundWon(data.round_won);
         }
-        if (data.last_flashed_clue) {
-          setFlashedClueText(data.last_flashed_clue.clueText);
-          setTimeout(() => setFlashedClueText(null), 400); // 0.4s shine duration
+        if (data.last_flashed_clue?.clueText) {
+          const flash = data.last_flashed_clue;
+          const flashKey = flash.flashId
+            || (flash.timestamp != null ? `${flash.clueText}:${flash.timestamp}` : null);
+          // Skip the clicker's own echo and any later row update that still
+          // carries the same flash.
+          if (flashKey && seenFlashIdsRef.current.has(flashKey)) {
+            // already played
+          } else {
+            if (flashKey) seenFlashIdsRef.current.add(flashKey);
+            const token = ++flashClearTokenRef.current;
+            setFlashedClueText(flash.clueText);
+            setTimeout(() => {
+              if (flashClearTokenRef.current === token) setFlashedClueText(null);
+            }, 400); // 0.4s shine duration
+          }
         }
       }
     );
@@ -641,19 +658,31 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
-  // 3. Trigger Clue Glow / Shine Effect for all players
+  // 3. Trigger Clue Glow / Shine Effect for all players.
+  // The clicker glows immediately; everyone else glows from the database update.
   const handleFlashClue = async (clueText) => {
     if (!sessionId) return;
 
-    await supabase
+    const flashId = `${Date.now()}-${++flashClearTokenRef.current}`;
+    seenFlashIdsRef.current.add(flashId);
+    const token = flashClearTokenRef.current;
+    setFlashedClueText(clueText);
+    setTimeout(() => {
+      if (flashClearTokenRef.current === token) setFlashedClueText(null);
+    }, 400);
+
+    const { error } = await supabase
       .from('game_sessions')
       .update({
         last_flashed_clue: {
           clueText,
           timestamp: Date.now(),
+          flashId,
         },
       })
       .eq('id', sessionId);
+
+    if (error) console.error('Error flashing clue:', error);
   };
 
   // 4. Handle Guesser Submission
