@@ -1113,9 +1113,9 @@ export default function GameRoom() {
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
                       Chosen Word
                     </p>
-                    <h2 className={keywordClass}>
+                    <p className={keywordClass}>
                       {keyWordText}
-                    </h2>
+                    </p>
                     {currentWord && typeof currentWord === 'object' && (
                       <p className="text-xs italic text-slate-400 mt-2">
                         Submitted by {getPlayerName(currentWord.authorId, currentWord.authorName)}
