@@ -115,6 +115,9 @@ export default function GameRoom() {
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
   const winPhraseRef = useRef(null);
+  // True after the victory sound has played for the current win. Later saves
+  // that still carry the old win flag must not play it again.
+  const victorySoundPlayedRef = useRef(false);
   const lossPhraseRef = useRef(null);
 
   useEffect(() => {
@@ -298,8 +301,13 @@ export default function GameRoom() {
         }
         if (data.submitted_guess !== undefined) setSubmittedGuess(data.submitted_guess);
         if (data.round_won !== undefined) {
-          if (data.round_won) playVictorySound();
-          setRoundWon(data.round_won);
+          const won = Boolean(data.round_won);
+          if (won && !victorySoundPlayedRef.current) {
+            victorySoundPlayedRef.current = true;
+            playVictorySound();
+          }
+          if (!won) victorySoundPlayedRef.current = false;
+          setRoundWon(won);
         }
         if (data.last_flashed_clue?.clueText) {
           const flash = data.last_flashed_clue;
@@ -427,6 +435,9 @@ export default function GameRoom() {
       setSubmittedClues(data.submitted_clues || []);
       acceptRemoteInvalidClues(data.invalid_clues || []);
       setPlayedKeywords(Array.isArray(data.board_state) ? data.board_state : []);
+      const alreadyWon = Boolean(data.round_won);
+      setRoundWon(alreadyWon);
+      victorySoundPlayedRef.current = alreadyWon;
       setLoading(false);
     }
   };
@@ -466,7 +477,7 @@ export default function GameRoom() {
     if (!availableWords || availableWords.length === 0) {
       await supabase
         .from('game_sessions')
-        .update({ game_status: 'game_over', board_state: nextPlayed })
+        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
         .eq('id', sessionId);
       return;
     }
@@ -493,7 +504,7 @@ export default function GameRoom() {
     if (!chosenGuesser || validWordPool.length === 0) {
       await supabase
         .from('game_sessions')
-        .update({ game_status: 'game_over', board_state: nextPlayed })
+        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
         .eq('id', sessionId);
       return;
     }
@@ -838,9 +849,12 @@ export default function GameRoom() {
       return;
     }
 
-    // 2. Play local victory sound if correct
     if (isMatch) {
-      playVictorySound();
+      setRoundWon(true);
+      if (!victorySoundPlayedRef.current) {
+        victorySoundPlayedRef.current = true;
+        playVictorySound();
+      }
     }
   };
 
@@ -848,7 +862,10 @@ export default function GameRoom() {
   const handleCloseEnough = async () => {
     if (!sessionId) return;
     setRoundWon(true);
-    playVictorySound();
+    if (!victorySoundPlayedRef.current) {
+      victorySoundPlayedRef.current = true;
+      playVictorySound();
+    }
 
     await supabase
       .from('game_sessions')
