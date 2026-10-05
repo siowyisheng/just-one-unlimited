@@ -1113,7 +1113,7 @@ export default function GameRoom() {
 
                 {/* Status Helper Message (Only shown when under 5 words) */}
                 {wordList.length < 5 && (
-                  <p className="text-xs text-amber-400/80 mt-3 font-medium flex items-center gap-1.5">
+                  <p className="text-xs text-amber-400/80 mt-5 font-medium flex items-center gap-1.5">
                     5+ words to start ({wordList.length}/5 added)
                   </p>
                 )}
