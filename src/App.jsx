@@ -755,6 +755,7 @@ export default function GameRoom() {
     return !invalidClues.includes(norm) && !exactDuplicateClues.has(norm);
   });
   const keyWordText = typeof currentWord === 'object' ? currentWord.text : currentWord;
+  const clueWordClass = 'text-2xl font-extrabold text-sky-400';
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -877,11 +878,11 @@ export default function GameRoom() {
                             onClick={() => !isGuesser && handleFlashClue(c.clue)}
                             className={`p-4 rounded-xl text-center border transition-all select-none relative overflow-hidden ${!isGuesser ? 'cursor-pointer' : 'cursor-default'
                               } ${isFlashed
-                                ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_25px_rgba(251,191,36,0.8)] scale-105 z-10'
+                                ? 'bg-slate-900 border-sky-400 shadow-[0_0_25px_rgba(56,189,248,0.85)] scale-105 z-10'
                                 : 'bg-slate-700/80 border-slate-600/80 text-slate-100'
                               }`}
                           >
-                            <p className={`text-2xl font-extrabold ${isFlashed ? 'text-slate-950' : 'text-amber-300'}`}>
+                            <p className={clueWordClass}>
                               {c.clue}
                             </p>
                             <p className={`text-xs italic mt-1 ${isFlashed ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
@@ -1042,7 +1043,7 @@ export default function GameRoom() {
                         value={myClueInput}
                         onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
                         placeholder="Enter a one-word clue"
-                        className="w-64 max-w-[60%] bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-sky-400 transition-colors"
+                        className="w-64 max-w-[60%] bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-sky-400 font-extrabold placeholder:text-slate-500 placeholder:font-normal focus:outline-none focus:border-sky-400 transition-colors"
                       />
                       <button
                         type="submit"
@@ -1104,10 +1105,10 @@ export default function GameRoom() {
                                   ? 'opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] cursor-not-allowed'
                                   /* 2. MANUALLY HIDDEN CLUES (Can be toggled back) */
                                   : isManuallyHidden
-                                    ? 'opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] cursor-pointer hover:border-amber-400/40'
+                                    ? 'opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] cursor-pointer hover:border-sky-400/40'
 
                                     /* 3. VISIBLE ACTIVE CLUES */
-                                    : 'bg-slate-700/70 border-slate-600/80 hover:border-amber-400/60 shadow-md cursor-pointer'
+                                    : 'bg-slate-700/70 border-slate-600/80 hover:border-sky-400/60 shadow-md cursor-pointer'
                                 }`}
                             >
                               {/* Status Badges */}
@@ -1118,8 +1119,7 @@ export default function GameRoom() {
                               ) : null}
 
                               <p
-                                className={`text-xl font-bold transition-all ${isInvisible ? 'text-slate-400 line-through' : 'text-amber-300'
-                                  }`}
+                                className={`${clueWordClass} transition-all ${isInvisible ? 'line-through opacity-40' : ''}`}
                               >
                                 {c.clue}
                               </p>
