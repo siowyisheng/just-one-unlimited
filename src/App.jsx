@@ -870,13 +870,13 @@ export default function GameRoom() {
 
                   {/* Guesser Input Form (Only visible to the Guesser) */}
                   {isGuesser && (
-                    <form onSubmit={handleGuessSubmit} className="flex justify-center w-full">
+                    <form onSubmit={handleGuessSubmit} className="flex w-full">
                       <input
                         type="text"
                         value={guessInput}
                         onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
                         aria-label="Guess keyword"
-                        className={`w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
+                        className={`flex-1 min-w-0 text-center bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
                       />
                       <button
                         type="submit"
