@@ -824,7 +824,7 @@ export default function GameRoom() {
               {/* Timer & Phase Header */}
               <div className="flex items-center justify-between border-b border-slate-700 pb-4">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
                     Guessing Phase
                   </span>
