@@ -868,7 +868,7 @@ export default function GameRoom() {
                         : 'Click any clue to trigger a glowing shine on everyone’s screen!'}
                     </p>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       {visibleClues.map((c, idx) => {
                         const isFlashed = flashedClueText === c.clue;
 
@@ -1083,7 +1083,7 @@ export default function GameRoom() {
                       </div>
 
                       {/* Clues Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 gap-3">
                         {submittedClues.map((c, idx) => {
                           const norm = normalizeClue(c.clue);
                           const isExactDup = isExactDuplicateClue(c.clue, submittedClues);
