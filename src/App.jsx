@@ -88,6 +88,9 @@ export default function GameRoom() {
   const [currentWord, setCurrentWord] = useState(null);
   const [submittedClues, setSubmittedClues] = useState([]);
   const [myClueInput, setMyClueInput] = useState('');
+  // Past keywords for this session. Stored in board_state as { text, correct }.
+  const [playedKeywords, setPlayedKeywords] = useState([]);
+  const advancingRoundRef = useRef(false);
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -275,6 +278,7 @@ export default function GameRoom() {
         if (Array.isArray(data.invalid_clues)) {
           acceptRemoteInvalidRef.current(data.invalid_clues);
         }
+        if (Array.isArray(data.board_state)) setPlayedKeywords(data.board_state);
 
         if (data.game_status) {
           setGameStatus(data.game_status);
@@ -414,6 +418,7 @@ export default function GameRoom() {
       setCurrentWord(data.current_word || null);
       setSubmittedClues(data.submitted_clues || []);
       acceptRemoteInvalidClues(data.invalid_clues || []);
+      setPlayedKeywords(Array.isArray(data.board_state) ? data.board_state : []);
       setLoading(false);
     }
   };
@@ -429,23 +434,26 @@ export default function GameRoom() {
 
   // Helper: Start Next Round Logic
   // Helper: Start Next Round Logic with Weighted Word Selection
-  const startNextRound = async (availableWords, playerList) => {
-    if (!availableWords || availableWords.length === 0) {
-      await supabase
-        .from('game_sessions')
-        .update({ game_status: 'game_over' })
-        .eq('id', sessionId);
-      return;
-    }
-
-    // 1. Fetch existing player_word_counts from database
+  const startNextRound = async (availableWords, playerList, playedEntry) => {
+    // 1. Fetch existing player_word_counts and the played-keyword history
     const { data: sessionData } = await supabase
       .from('game_sessions')
-      .select('player_word_counts')
+      .select('player_word_counts, board_state')
       .eq('id', sessionId)
       .single();
 
     const counts = sessionData?.player_word_counts || {};
+    const existingPlayed = Array.isArray(sessionData?.board_state) ? sessionData.board_state : [];
+    const nextPlayed = playedEntry ? [...existingPlayed, playedEntry] : existingPlayed;
+    if (playedEntry) setPlayedKeywords(nextPlayed);
+
+    if (!availableWords || availableWords.length === 0) {
+      await supabase
+        .from('game_sessions')
+        .update({ game_status: 'game_over', board_state: nextPlayed })
+        .eq('id', sessionId);
+      return;
+    }
 
     // 2. Find a valid guesser who has words NOT submitted by them
     let chosenGuesser = null;
@@ -469,7 +477,7 @@ export default function GameRoom() {
     if (!chosenGuesser || validWordPool.length === 0) {
       await supabase
         .from('game_sessions')
-        .update({ game_status: 'game_over' })
+        .update({ game_status: 'game_over', board_state: nextPlayed })
         .eq('id', sessionId);
       return;
     }
@@ -519,6 +527,7 @@ export default function GameRoom() {
         round_won: false,
         word_list: updatedWordList,
         player_word_counts: updatedCounts,
+        board_state: nextPlayed,
       })
       .eq('id', sessionId);
   };
@@ -826,9 +835,15 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
-  // 6. Handle "NEXT WORD" Button Click (Advances Guesser & Word)
+  // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word)
   const handleNextWord = async () => {
-    if (!sessionId) return;
+    if (!sessionId || advancingRoundRef.current) return;
+    advancingRoundRef.current = true;
+
+    const playedText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
+    const playedEntry = playedText
+      ? { text: String(playedText).trim(), correct: Boolean(roundWon) }
+      : null;
 
     // Find index of current guesser
     const currentGuesserIdx = onlinePlayers.findIndex((p) => p.key === currentGuesserId);
@@ -844,8 +859,12 @@ export default function GameRoom() {
     setRoundWon(false);
     setGuessInput('');
 
-    // Call round setup helper
-    await startNextRound(wordList, nextPlayersOrder);
+    try {
+      // Call round setup helper
+      await startNextRound(wordList, nextPlayersOrder, playedEntry);
+    } finally {
+      advancingRoundRef.current = false;
+    }
   };
 
   // User details & round helpers
@@ -886,6 +905,13 @@ export default function GameRoom() {
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
   const keywordClass = 'text-2xl font-extrabold text-amber-500';
   const waitingLineClass = 'text-center text-slate-100 font-medium py-3 italic animate-pulse';
+  const pastKeywords = (Array.isArray(playedKeywords) ? playedKeywords : []).filter(
+    (item) => item && typeof item.text === 'string' && item.text.trim()
+  );
+  const pastKeywordCorrect = pastKeywords.filter((item) => item.correct).length;
+  const pastKeywordPercent = pastKeywords.length === 0
+    ? 0
+    : Math.round((pastKeywordCorrect / pastKeywords.length) * 100);
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -936,7 +962,7 @@ export default function GameRoom() {
                   onClick={handleNextWord}
                   className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
                 >
-                  <span>NEXT WORD</span>
+                  <span>NEXT KEYWORD</span>
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                   </svg>
@@ -1050,7 +1076,7 @@ export default function GameRoom() {
                         onClick={handleNextWord}
                         className="mt-4 px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
                       >
-                        <span>NEXT WORD</span>
+                        <span>NEXT KEYWORD</span>
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                         </svg>
@@ -1087,7 +1113,7 @@ export default function GameRoom() {
                           onClick={handleNextWord}
                           className="flex-1 px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
                         >
-                          <span>NEXT WORD</span>
+                          <span>NEXT KEYWORD</span>
                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
@@ -1315,62 +1341,89 @@ export default function GameRoom() {
           ) : null}
         </div>
 
-        {/* Players Sidebar Widget */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
-          <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="uppercase">Players ({onlinePlayers.length})</span>
-          </div>
+        {/* Players column */}
+        <div className="flex flex-col gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
+            <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="uppercase">Players ({onlinePlayers.length})</span>
+            </div>
 
-          <div className="flex flex-col gap-2.5">
-            {onlinePlayers.map((playerObj, idx) => {
-              const isMe = playerObj.key === CLIENT_ID;
-              const isGuesserPlayer = playerObj.key === currentGuesserId;
+            <div className="flex flex-col gap-2.5">
+              {onlinePlayers.map((playerObj, idx) => {
+                const isMe = playerObj.key === CLIENT_ID;
+                const isGuesserPlayer = playerObj.key === currentGuesserId;
 
-              return (
-                <div key={idx} className="flex flex-col">
-                  {isMe && isEditingName ? (
-                    <input
-                      ref={editInputRef}
-                      type="text"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
-                      onBlur={() => handleSaveUsername(tempName)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleSaveUsername(tempName);
-                        }
-                      }}
-                      className="w-full bg-slate-900 text-amber-300 px-3 py-2 rounded-lg border-2 border-amber-400 focus:outline-none text-sm font-medium shadow-inner"
-                    />
-                  ) : (
-                    <div
-                      onClick={() => {
-                        if (isMe) {
-                          setTempName(myUsername);
-                          setIsEditingName(true);
-                        }
-                      }}
-                      className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between transition-all ${isMe
-                        ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer hover:border-amber-400/80'
-                        : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
-                        }`}
-                    >
-                      <span className="truncate">
-                        {playerObj.username} {isMe && '(You)'}
-                      </span>
-
-                      {isGuesserPlayer && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
-                          Guesser
+                return (
+                  <div key={idx} className="flex flex-col">
+                    {isMe && isEditingName ? (
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={tempName}
+                        onChange={(e) => setTempName(e.target.value)}
+                        onBlur={() => handleSaveUsername(tempName)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveUsername(tempName);
+                          }
+                        }}
+                        className="w-full bg-slate-900 text-amber-300 px-3 py-2 rounded-lg border-2 border-amber-400 focus:outline-none text-sm font-medium shadow-inner"
+                      />
+                    ) : (
+                      <div
+                        onClick={() => {
+                          if (isMe) {
+                            setTempName(myUsername);
+                            setIsEditingName(true);
+                          }
+                        }}
+                        className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between transition-all ${isMe
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer hover:border-amber-400/80'
+                          : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
+                          }`}
+                      >
+                        <span className="truncate">
+                          {playerObj.username} {isMe && '(You)'}
                         </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+
+                        {isGuesserPlayer && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
+                            Guesser
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
+          {pastKeywords.length > 0 && (
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
+              <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-1">
+                <span className="uppercase">Past Keywords ({pastKeywords.length} | {pastKeywordPercent}%</span>
+                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>)</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {pastKeywords.map((item, idx) => (
+                  <span
+                    key={`${item.text}-${idx}`}
+                    className={`text-xs font-bold px-2 py-0.5 rounded-full border ${item.correct
+                      ? 'border-emerald-400 text-emerald-300'
+                      : 'border-rose-400 text-rose-300'
+                      }`}
+                  >
+                    {item.text}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
