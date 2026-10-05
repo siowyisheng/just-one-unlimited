@@ -588,7 +588,7 @@ export default function GameRoom() {
   // Handle Giving a Clue
   const handleGiveClue = async (e) => {
     e.preventDefault();
-    const trimmed = myClueInput.trim().replace(/\s+/g, ''); // Strip all spaces
+    const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
     const newClueEntry = {
@@ -1023,7 +1023,7 @@ export default function GameRoom() {
                       <input
                         type="text"
                         value={myClueInput}
-                        onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, ''))} // Reject spaces
+                        onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
                         placeholder="Enter a one-word clue"
                         className="w-64 max-w-[60%] bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-sky-400 transition-colors"
                       />
