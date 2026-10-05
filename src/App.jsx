@@ -999,7 +999,7 @@ export default function GameRoom() {
             title={linkCopied ? 'Link copied' : 'Copy session link'}
             className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 text-sm font-mono tracking-wide cursor-pointer transition-colors"
           >
-            <span>{sessionId.slice(0, 8)}</span>
+            <span className="whitespace-nowrap">{linkCopied ? 'Link Copied!' : sessionId.slice(0, 8)}</span>
             {linkCopied ? (
               <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
