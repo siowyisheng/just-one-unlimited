@@ -121,8 +121,9 @@ export default function GameRoom() {
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
   const roundStartTimeRef = useRef(null);
 
-  // Animated Dots State for "STARTING SOON..."
+  // Animated Dots State for "STARTING SOON..." and the clue-giving wait line
   const [animatedDots, setAnimatedDots] = useState('.');
+  const [clueWaitDots, setClueWaitDots] = useState('.');
   const [linkCopied, setLinkCopied] = useState(false);
   const copyResetRef = useRef(null);
 
@@ -199,6 +200,24 @@ export default function GameRoom() {
       if (interval) clearInterval(interval);
     };
   }, [gameStatus, roundWon]);
+
+  useEffect(() => {
+    const waitingForClues = gameStatus === 'in_round' && currentGuesserId === CLIENT_ID;
+    if (!waitingForClues) {
+      setClueWaitDots('.');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setClueWaitDots((prev) => {
+        if (prev === '.') return '..';
+        if (prev === '..') return '...';
+        return '.';
+      });
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [gameStatus, currentGuesserId]);
 
   // Ticking timer for the clue-giving phase, shown to every player
   useEffect(() => {
@@ -1073,7 +1092,7 @@ export default function GameRoom() {
                 <div className="flex flex-col gap-6">
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
                     <h2 className="text-3xl font-extrabold text-amber-400">
-                      YOU ARE THE GUESSER
+                      Waiting for clue givers{clueWaitDots}
                     </h2>
                   </div>
 
