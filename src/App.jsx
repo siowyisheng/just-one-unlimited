@@ -1432,7 +1432,6 @@ export default function GameRoom() {
         <div className="flex flex-col gap-6">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
             <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="uppercase">Players ({onlinePlayers.length})</span>
             </div>
 
