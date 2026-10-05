@@ -526,7 +526,7 @@ export default function GameRoom() {
 
   const handleAddWord = async (e) => {
     e.preventDefault();
-    const trimmed = newWord.trim();
+    const trimmed = newWord.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
     // Store word as an object with author details
@@ -547,6 +547,23 @@ export default function GameRoom() {
 
     if (error) {
       console.error('Error adding word:', error);
+      setWordList(wordList);
+    }
+  };
+
+  const handleRemoveWord = async (index) => {
+    if (!sessionId || index < 0 || index >= wordList.length) return;
+
+    const updatedWords = wordList.filter((_, i) => i !== index);
+    setWordList(updatedWords);
+
+    const { error } = await supabase
+      .from('game_sessions')
+      .update({ word_list: updatedWords })
+      .eq('id', sessionId);
+
+    if (error) {
+      console.error('Error removing word:', error);
       setWordList(wordList);
     }
   };
@@ -849,8 +866,10 @@ export default function GameRoom() {
                         newWord={newWord}
                         setNewWord={setNewWord}
                         onAddWord={handleAddWord}
+                        onRemoveWord={handleRemoveWord}
                         wordList={wordList}
                         getPlayerName={getPlayerName}
+                        currentUserId={CLIENT_ID}
                       />
                     </div>
                   )}
@@ -957,8 +976,10 @@ export default function GameRoom() {
                     newWord={newWord}
                     setNewWord={setNewWord}
                     onAddWord={handleAddWord}
+                    onRemoveWord={handleRemoveWord}
                     wordList={wordList}
                     getPlayerName={getPlayerName}
+                    currentUserId={CLIENT_ID}
                   />
                 </div>
               ) : (
@@ -1123,8 +1144,10 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={setNewWord}
                 onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
               />
 
             </div>

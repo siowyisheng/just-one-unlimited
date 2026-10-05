@@ -4,27 +4,29 @@ export default function WordSubmissionWidget({
     newWord,
     setNewWord,
     onAddWord,
+    onRemoveWord,
     wordList,
     getPlayerName,
+    currentUserId,
     title = "Shared Word List",
     placeholder = "Enter a one-word noun",
 }) {
     return (
         <div className="flex flex-col gap-4">
             {/* Add Word Form */}
-            <form onSubmit={onAddWord} className="flex gap-2">
+            <form onSubmit={onAddWord} className="flex justify-center">
                 <input
                     type="text"
                     value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
+                    onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
                     placeholder={placeholder}
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
+                    className="w-64 max-w-[60%] bg-slate-800 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
                 />
                 <button
                     type="submit"
-                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
                 >
-                    Add
+                    ADD WORD
                 </button>
             </form>
 
@@ -47,18 +49,41 @@ export default function WordSubmissionWidget({
                             const authorId = typeof item === 'object' ? item.authorId : null;
                             const staticAuthorName = typeof item === 'object' ? item.authorName : null;
                             const author = authorId ? getPlayerName(authorId, staticAuthorName) : staticAuthorName;
+                            const wordText = typeof item === 'object' ? item.text : item;
+                            const isMine = Boolean(currentUserId) && authorId === currentUserId;
+
+                            const authorLabel = author ? (
+                                <span className="text-[10px] text-slate-400 italic tracking-normal">
+                                    ({author})
+                                </span>
+                            ) : null;
+
+                            if (isMine) {
+                                return (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => onRemoveWord(idx)}
+                                        aria-label={`Remove ${wordText}`}
+                                        title="Remove this word"
+                                        className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 hover:border-rose-400/70 flex items-center gap-1.5 tracking-normal select-none cursor-pointer transition-colors"
+                                    >
+                                        <span>{wordText}</span>
+                                        <svg className="w-3.5 h-3.5 text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                                            <path strokeLinecap="round" d="M5 12h14" />
+                                        </svg>
+                                        {authorLabel}
+                                    </button>
+                                );
+                            }
 
                             return (
                                 <span
                                     key={idx}
-                                    className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 flex items-center gap-1.5 tracking-widest select-none"
+                                    className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 flex items-center gap-1.5 select-none"
                                 >
-                                    <span>******</span>
-                                    {author && (
-                                        <span className="text-[10px] text-slate-400 italic tracking-normal">
-                                            ({author})
-                                        </span>
-                                    )}
+                                    <span className="tracking-widest">******</span>
+                                    {authorLabel}
                                 </span>
                             );
                         })}
