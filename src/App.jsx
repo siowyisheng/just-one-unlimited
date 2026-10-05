@@ -1107,7 +1107,7 @@ export default function GameRoom() {
                     <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg shadow-2xl">
                       <div className="grid grid-cols-2 gap-4 w-full">
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <p className="text-xs text-slate-400 uppercase tracking-wider">Guessed Word</p>
+                          <p className="text-xs text-slate-400 uppercase tracking-wider">Guess</p>
                           <p className="text-2xl font-bold text-rose-400 truncate">{submittedGuess}</p>
                         </div>
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
