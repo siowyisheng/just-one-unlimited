@@ -91,6 +91,14 @@ export default function GameRoom() {
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
+  // Latest list, including clicks that have not been saved yet. Rapid clicks
+  // read this so they do not all toggle the same stale snapshot.
+  const invalidCluesRef = useRef([]);
+  // Lists this client has already moved past. A late save of one of these
+  // must not flip the card back.
+  const supersededInvalidRef = useRef(new Set());
+  const invalidWriteTailRef = useRef(Promise.resolve());
+  const invalidWritePendingRef = useRef(false);
 
   // Guesser & Clue Interaction State
   const [guessInput, setGuessInput] = useState('');
@@ -264,7 +272,9 @@ export default function GameRoom() {
         if (data.current_guesser_id !== undefined) setCurrentGuesserId(data.current_guesser_id);
         if (data.current_word !== undefined) setCurrentWord(data.current_word);
         if (data.submitted_clues) setSubmittedClues(data.submitted_clues);
-        if (data.invalid_clues) setInvalidClues(data.invalid_clues);
+        if (Array.isArray(data.invalid_clues)) {
+          acceptRemoteInvalidRef.current(data.invalid_clues);
+        }
 
         if (data.game_status) {
           setGameStatus(data.game_status);
@@ -403,6 +413,7 @@ export default function GameRoom() {
       setCurrentGuesserId(data.current_guesser_id || null);
       setCurrentWord(data.current_word || null);
       setSubmittedClues(data.submitted_clues || []);
+      acceptRemoteInvalidClues(data.invalid_clues || []);
       setLoading(false);
     }
   };
@@ -659,27 +670,76 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
+  const invalidClueSig = (list) => (Array.isArray(list) ? list.join('\u0000') : '');
+
+  // Apply a list saved by someone else. Ignore it while this client is still
+  // ahead of the database, and ignore an older list this client already left.
+  const acceptRemoteInvalidClues = (next) => {
+    const remote = Array.isArray(next) ? next : [];
+    const remoteSig = invalidClueSig(remote);
+    const localSig = invalidClueSig(invalidCluesRef.current);
+    if (remoteSig === localSig) {
+      supersededInvalidRef.current.clear();
+      invalidWritePendingRef.current = false;
+      return;
+    }
+    if (invalidWritePendingRef.current || supersededInvalidRef.current.has(remoteSig)) {
+      return;
+    }
+    supersededInvalidRef.current.clear();
+    invalidCluesRef.current = remote;
+    setInvalidClues(remote);
+  };
+  const acceptRemoteInvalidRef = useRef(acceptRemoteInvalidClues);
+  acceptRemoteInvalidRef.current = acceptRemoteInvalidClues;
+
+  // Show the new visibility immediately, then save the latest list once.
+  // Intermediate clicks are not written, so their echoes cannot flash the card.
+  const persistInvalidClues = (next) => {
+    const prevSig = invalidClueSig(invalidCluesRef.current);
+    const nextSig = invalidClueSig(next);
+    if (prevSig !== nextSig) supersededInvalidRef.current.add(prevSig);
+    invalidCluesRef.current = next;
+    setInvalidClues(next);
+    invalidWritePendingRef.current = true;
+
+    const targetSession = sessionId;
+    invalidWriteTailRef.current = invalidWriteTailRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (invalidClueSig(invalidCluesRef.current) !== nextSig) return;
+        try {
+          const { error } = await supabase
+            .from('game_sessions')
+            .update({ invalid_clues: invalidCluesRef.current })
+            .eq('id', targetSession);
+          if (invalidClueSig(invalidCluesRef.current) !== nextSig) return;
+          if (error) {
+            console.error('Error updating clue visibility:', error);
+            supersededInvalidRef.current.clear();
+            invalidWritePendingRef.current = false;
+            return;
+          }
+          invalidWritePendingRef.current = false;
+        } catch (err) {
+          console.error('Error updating clue visibility:', err);
+          supersededInvalidRef.current.clear();
+          invalidWritePendingRef.current = false;
+        }
+      });
+  };
+
   // Toggle a clue's visibility state (between translucent/invisible and active)
-  const handleToggleClueVisibility = async (clueText) => {
+  const handleToggleClueVisibility = (clueText) => {
     if (isGuesser || !sessionId) return;
 
     const normalized = normalizeClue(clueText);
-    let updatedInvalid;
+    const current = invalidCluesRef.current;
+    const updated = current.includes(normalized)
+      ? current.filter((c) => c !== normalized)
+      : [...current, normalized];
 
-    if (invalidClues.includes(normalized)) {
-      // Make visible again
-      updatedInvalid = invalidClues.filter((c) => c !== normalized);
-    } else {
-      // Mark as invisible
-      updatedInvalid = [...invalidClues, normalized];
-    }
-
-    setInvalidClues(updatedInvalid);
-
-    await supabase
-      .from('game_sessions')
-      .update({ invalid_clues: updatedInvalid })
-      .eq('id', sessionId);
+    persistInvalidClues(updated);
   };
 
   // Transition game phase when READY is clicked
@@ -802,19 +862,16 @@ export default function GameRoom() {
       submittedClues.length > 0
     ) {
       const exactDupes = Array.from(getAutoDeduplicatedClues(submittedClues));
+      const currentInvalid = invalidCluesRef.current;
 
       // Combine existing manually hidden clues with exact duplicate clues
       const combinedInvalid = Array.from(
-        new Set([...invalidClues, ...exactDupes])
+        new Set([...currentInvalid, ...exactDupes])
       );
 
-      // Only update if there are new duplicate items not yet present in invalidClues
-      if (combinedInvalid.length !== invalidClues.length) {
-        setInvalidClues(combinedInvalid);
-        supabase
-          .from('game_sessions')
-          .update({ invalid_clues: combinedInvalid })
-          .eq('id', sessionId);
+      // Only update if there are new duplicate items not yet present
+      if (invalidClueSig(combinedInvalid) !== invalidClueSig(currentInvalid)) {
+        persistInvalidClues(combinedInvalid);
       }
     }
   }, [allCluesSubmitted, submittedClues, gameStatus]);
@@ -1169,7 +1226,7 @@ export default function GameRoom() {
                                   handleToggleClueVisibility(c.clue);
                                 }
                               }}
-                              className={`p-3.5 rounded-xl text-center border transition-all select-none relative ${
+                              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${
                                 /* 1. EXACT DUPLICATES (Permanently Disabled / Locked) */
                                 isExactDup
                                   ? 'opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] cursor-not-allowed'
@@ -1189,7 +1246,7 @@ export default function GameRoom() {
                               ) : null}
 
                               <p
-                                className={`${clueWordClass} transition-all ${isInvisible ? 'line-through opacity-40' : ''}`}
+                                className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''}`}
                               >
                                 {c.clue}
                               </p>
