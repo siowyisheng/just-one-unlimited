@@ -1278,10 +1278,10 @@ export default function GameRoom() {
 
         {/* Players Sidebar Widget */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
-          <h2 className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
+          <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>Players ({onlinePlayers.length})</span>
-          </h2>
+          </div>
 
           <div className="flex flex-col gap-2.5">
             {onlinePlayers.map((playerObj, idx) => {
