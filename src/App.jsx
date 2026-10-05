@@ -986,10 +986,10 @@ export default function GameRoom() {
   };
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
+    <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6 pb-14">
       <header className="mb-8 text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-amber-400">
-          Just One Unlimited
+        <h1 className="game-title text-4xl">
+          Just <span className="keyword-mark">One</span> Unlimited
         </h1>
         {sessionId && (
           <button
@@ -1515,6 +1515,14 @@ export default function GameRoom() {
           )}
         </div>
       </div>
+      <a
+        href="https://boardgamegeek.com/boardgame/254640/just-one"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-3 left-1/2 z-20 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 text-center text-xs italic leading-relaxed text-slate-400/60 underline-offset-2 hover:text-slate-200 hover:underline"
+      >
+        based on Just One designed by Ludovic Roudy & Bruno Sautter
+      </a>
     </div>
   );
 }

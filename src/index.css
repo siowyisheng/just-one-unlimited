@@ -75,6 +75,19 @@ h2 {
   color: var(--text-h);
 }
 
+h1.game-title {
+  font-family: Fraunces, Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: #f8fafc;
+}
+
+h1.game-title .keyword-mark {
+  color: var(--color-amber-500);
+  text-transform: uppercase;
+}
+
 h1 {
   font-size: 56px;
   letter-spacing: -1.68px;
