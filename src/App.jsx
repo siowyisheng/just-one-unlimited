@@ -787,6 +787,7 @@ export default function GameRoom() {
   });
   const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
+  const keywordClass = 'text-2xl font-extrabold text-amber-500';
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
@@ -829,7 +830,7 @@ export default function GameRoom() {
                 </h2>
                 <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
                   <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
-                  <p className="text-3xl font-extrabold text-amber-300">
+                  <p className={keywordClass}>
                     {keyWordText}
                   </p>
                 </div>
@@ -875,7 +876,7 @@ export default function GameRoom() {
                         value={guessInput}
                         onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
                         aria-label="Guess keyword"
-                        className="w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium uppercase"
+                        className={`w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
                       />
                       <button
                         type="submit"
@@ -925,6 +926,7 @@ export default function GameRoom() {
                         wordList={wordList}
                         getPlayerName={getPlayerName}
                         currentUserId={CLIENT_ID}
+                        keywordClass={keywordClass}
                       />
                     </div>
                   )}
@@ -942,7 +944,7 @@ export default function GameRoom() {
                       </h2>
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
                         <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
-                        <p className="text-3xl font-extrabold text-amber-300">
+                        <p className={keywordClass}>
                           {keyWordText}
                         </p>
                       </div>
@@ -967,7 +969,7 @@ export default function GameRoom() {
                         </div>
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                           <p className="text-xs text-slate-400 uppercase tracking-wider">Key Word</p>
-                          <p className="text-2xl font-bold text-amber-300 truncate">
+                          <p className={`${keywordClass} truncate`}>
                             {keyWordText}
                           </p>
                         </div>
@@ -1041,6 +1043,7 @@ export default function GameRoom() {
                     wordList={wordList}
                     getPlayerName={getPlayerName}
                     currentUserId={CLIENT_ID}
+                    keywordClass={keywordClass}
                   />
                 </div>
               ) : (
@@ -1051,7 +1054,7 @@ export default function GameRoom() {
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
                       Chosen Word
                     </p>
-                    <h2 className="text-5xl font-black text-amber-300 tracking-wide">
+                    <h2 className={keywordClass}>
                       {keyWordText}
                     </h2>
                     {currentWord && typeof currentWord === 'object' && (
@@ -1208,6 +1211,7 @@ export default function GameRoom() {
                 wordList={wordList}
                 getPlayerName={getPlayerName}
                 currentUserId={CLIENT_ID}
+                keywordClass={keywordClass}
               />
 
             </div>

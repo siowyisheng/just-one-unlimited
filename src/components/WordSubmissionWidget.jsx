@@ -8,6 +8,7 @@ export default function WordSubmissionWidget({
     wordList,
     getPlayerName,
     currentUserId,
+    keywordClass = 'text-2xl font-extrabold text-amber-500',
     title = "Shared Keyword List",
     placeholder = "Enter a noun",
 }) {
@@ -66,9 +67,9 @@ export default function WordSubmissionWidget({
                                         onClick={() => onRemoveWord(idx)}
                                         aria-label={`Remove ${wordText}`}
                                         title="Remove this word"
-                                        className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 hover:border-rose-400/70 flex items-center gap-1.5 tracking-normal select-none cursor-pointer transition-colors"
+                                        className="bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600/60 hover:border-rose-400/70 flex items-center gap-1.5 tracking-normal select-none cursor-pointer transition-colors"
                                     >
-                                        <span>{wordText}</span>
+                                        <span className={keywordClass}>{wordText}</span>
                                         <svg className="w-3.5 h-3.5 text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
                                             <path strokeLinecap="round" d="M5 12h14" />
                                         </svg>
@@ -80,9 +81,9 @@ export default function WordSubmissionWidget({
                             return (
                                 <span
                                     key={idx}
-                                    className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 flex items-center gap-1.5 select-none"
+                                    className="bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600/60 flex items-center gap-1.5 select-none"
                                 >
-                                    <span className="tracking-widest">******</span>
+                                    <span className={`${keywordClass} tracking-widest`}>******</span>
                                     {authorLabel}
                                 </span>
                             );
