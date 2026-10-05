@@ -1073,7 +1073,7 @@ export default function GameRoom() {
                 <div className="flex flex-col gap-6">
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
                     <p className={waitingLineClass}>
-                      Waiting for clue givers
+                      Waiting for clue givers...
                     </p>
                   </div>
 
