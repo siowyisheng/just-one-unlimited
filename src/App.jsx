@@ -869,23 +869,21 @@ export default function GameRoom() {
 
                   {/* Guesser Input Form (Only visible to the Guesser) */}
                   {isGuesser && (
-                    <div className="bg-slate-900/60 p-6 rounded-xl border border-slate-700 flex flex-col items-center gap-4 text-center">
-                      <form onSubmit={handleGuessSubmit} className="flex justify-center w-full">
-                        <input
-                          type="text"
-                          value={guessInput}
-                          onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                          aria-label="Guess keyword"
-                          className="w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium uppercase"
-                        />
-                        <button
-                          type="submit"
-                          className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
-                        >
-                          GUESS KEYWORD
-                        </button>
-                      </form>
-                    </div>
+                    <form onSubmit={handleGuessSubmit} className="flex justify-center w-full">
+                      <input
+                        type="text"
+                        value={guessInput}
+                        onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        aria-label="Guess keyword"
+                        className="w-48 bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium uppercase"
+                      />
+                      <button
+                        type="submit"
+                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
+                      >
+                        GUESS KEYWORD
+                      </button>
+                    </form>
                   )}
 
                   {/* Visible Clues Grid (Shown to BOTH Guesser and Clue Givers) */}
