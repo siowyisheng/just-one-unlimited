@@ -14,19 +14,19 @@ export default function WordSubmissionWidget({
     return (
         <div className="flex flex-col gap-4">
             {/* Add Word Form */}
-            <form onSubmit={onAddWord} className="flex gap-2">
+            <form onSubmit={onAddWord} className="flex justify-center">
                 <input
                     type="text"
                     value={newWord}
                     onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
                     placeholder={placeholder}
-                    className="w-64 max-w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 uppercase focus:outline-none focus:border-amber-400 transition-colors"
+                    className="w-64 max-w-[60%] bg-slate-800 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
                 />
                 <button
                     type="submit"
-                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
                 >
-                    Add
+                    ADD WORD
                 </button>
             </form>
 
