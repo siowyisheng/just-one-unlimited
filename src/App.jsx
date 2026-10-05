@@ -94,6 +94,7 @@ export default function GameRoom() {
 
   // Timer State
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
   const roundStartTimeRef = useRef(null);
 
   // Animated Dots State for "STARTING SOON..."
@@ -173,6 +174,22 @@ export default function GameRoom() {
       if (interval) clearInterval(interval);
     };
   }, [gameStatus, roundWon]);
+
+  // Seconds the guesser has been waiting for clues in this round
+  useEffect(() => {
+    const waitingForClues = gameStatus === 'in_round' && currentGuesserId === CLIENT_ID;
+    if (!waitingForClues) return;
+
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      setClueWaitSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      setClueWaitSeconds(0);
+    };
+  }, [gameStatus, currentGuesserId]);
 
   useEffect(() => {
     if (isEditingName && editInputRef.current) {
@@ -967,8 +984,8 @@ export default function GameRoom() {
                     <h2 className="text-3xl font-extrabold text-amber-400 mb-1">
                       YOU ARE THE GUESSER
                     </h2>
-                    <p className="text-slate-400 text-sm animate-pulse">
-                      Waiting for clue givers to submit and filter clues...
+                    <p className="text-slate-400 text-sm">
+                      Waiting for clue givers ({clueWaitSeconds}s)
                     </p>
                   </div>
 
