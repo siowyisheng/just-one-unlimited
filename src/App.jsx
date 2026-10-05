@@ -1464,7 +1464,9 @@ export default function GameRoom() {
           {pastKeywords.length > 0 && (
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
               <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-1">
-                <span className="uppercase">Past Keywords ({pastKeywords.length} | {pastKeywordPercent}%</span>
+                <span className="uppercase">Past Keywords ({pastKeywords.length}</span>
+                <span className="mx-0.5 h-3 w-px bg-slate-300 shrink-0" aria-hidden="true"></span>
+                <span>{pastKeywordPercent}%</span>
                 <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
