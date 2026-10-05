@@ -985,7 +985,6 @@ export default function GameRoom() {
                         wordList={wordList}
                         getPlayerName={getPlayerName}
                         currentUserId={CLIENT_ID}
-                        keywordClass={keywordClass}
                       />
                     </div>
                   )}
@@ -1104,7 +1103,6 @@ export default function GameRoom() {
                     wordList={wordList}
                     getPlayerName={getPlayerName}
                     currentUserId={CLIENT_ID}
-                    keywordClass={keywordClass}
                   />
                 </div>
               ) : (
@@ -1272,7 +1270,6 @@ export default function GameRoom() {
                 wordList={wordList}
                 getPlayerName={getPlayerName}
                 currentUserId={CLIENT_ID}
-                keywordClass={keywordClass}
               />
 
             </div>
