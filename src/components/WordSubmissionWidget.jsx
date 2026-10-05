@@ -20,7 +20,7 @@ export default function WordSubmissionWidget({
                     value={newWord}
                     onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
                     placeholder={placeholder}
-                    className="w-64 max-w-[60%] text-center bg-slate-800 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-2xl font-extrabold text-amber-500 placeholder:text-base placeholder:font-normal placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-colors"
+                    className="w-64 max-w-[60%] text-center h-[58px] box-border bg-slate-800 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 text-2xl font-extrabold leading-[56px] text-amber-500 placeholder-shown:text-base placeholder-shown:font-normal placeholder:text-slate-500 focus:outline-none focus:border-amber-400 transition-colors"
                 />
                 <button
                     type="submit"
