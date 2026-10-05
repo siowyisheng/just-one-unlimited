@@ -973,7 +973,7 @@ export default function GameRoom() {
                   {currentLossPhrase()}
                 </h2>
                 <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
-                  <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
                   <p className={keywordClass}>
                     {keyWordText}
                   </p>
@@ -1086,7 +1086,7 @@ export default function GameRoom() {
                         {currentWinPhrase()}
                       </h2>
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
-                        <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
+                        <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
                         <p className={keywordClass}>
                           {keyWordText}
                         </p>
@@ -1111,7 +1111,7 @@ export default function GameRoom() {
                           <p className="text-2xl font-bold text-rose-400 truncate">{submittedGuess}</p>
                         </div>
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <p className="text-xs text-slate-400 uppercase tracking-wider">Key Word</p>
+                          <p className="text-xs text-slate-400 uppercase tracking-wider">Keyword</p>
                           <p className={`${keywordClass} truncate`}>
                             {keyWordText}
                           </p>
