@@ -180,12 +180,12 @@ export default function GameRoom() {
     };
   }, [gameStatus, roundWon]);
 
-  // Seconds the guesser has been waiting for clues in this round
+  // Ticking timer for the clue-giving phase, shown to every player
   useEffect(() => {
-    const waitingForClues = gameStatus === 'in_round' && currentGuesserId === CLIENT_ID;
-    if (!waitingForClues) return;
+    if (gameStatus !== 'in_round') return;
 
     const startedAt = Date.now();
+    setClueWaitSeconds(0);
     const interval = setInterval(() => {
       setClueWaitSeconds(Math.floor((Date.now() - startedAt) / 1000));
     }, 1000);
@@ -194,7 +194,7 @@ export default function GameRoom() {
       clearInterval(interval);
       setClueWaitSeconds(0);
     };
-  }, [gameStatus, currentGuesserId]);
+  }, [gameStatus]);
 
   useEffect(() => {
     if (isEditingName && editInputRef.current) {
@@ -1017,22 +1017,24 @@ export default function GameRoom() {
           ) : gameStatus === 'in_round' ? (
             /* MAIN GAME DIV */
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
-              <div className="flex items-center gap-2 border-b border-slate-700 pb-4">
-                <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-yellow-400' : 'bg-emerald-500'}`}></span>
-                <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                  Clue-Giving Phase
-                </span>
+              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-yellow-400' : 'bg-emerald-500'}`}></span>
+                  <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                    Clue-Giving Phase
+                  </span>
+                </div>
+                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-amber-400">
+                  ⏱️ {clueWaitSeconds}s
+                </div>
               </div>
               {isGuesser ? (
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
-                    <h2 className="text-3xl font-extrabold text-amber-400 mb-1">
+                    <h2 className="text-3xl font-extrabold text-amber-400">
                       YOU ARE THE GUESSER
                     </h2>
-                    <p className="text-slate-400 text-sm">
-                      Waiting for clue givers ({clueWaitSeconds}s)
-                    </p>
                   </div>
 
                   <WordSubmissionWidget
