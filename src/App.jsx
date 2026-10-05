@@ -680,9 +680,6 @@ export default function GameRoom() {
         <h1 className="text-4xl font-extrabold tracking-tight text-amber-400">
           Just One Unlimited
         </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Collaborative Word Game Session
-        </p>
       </header>
 
       {/* Main Layout Grid */}
