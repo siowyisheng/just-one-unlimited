@@ -135,6 +135,7 @@ export default function GameRoom() {
   const getAutoDeduplicatedClues = (clues) => {
     const counts = {};
     clues.forEach((c) => {
+      if (!c?.clue) return;
       const norm = normalizeClue(c.clue);
       counts[norm] = (counts[norm] || 0) + 1;
     });
@@ -661,8 +662,8 @@ export default function GameRoom() {
     const trimmed = guessInput.trim().replace(/\s+/g, ''); // Strip spaces
     if (!trimmed || !sessionId) return;
 
-    const keyWordText = typeof currentWord === 'object' ? currentWord.text : currentWord;
-    const isMatch = trimmed.toLowerCase() === keyWordText.toLowerCase();
+    const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
+    const isMatch = trimmed.toLowerCase() === String(keyWordText ?? '').toLowerCase();
 
     // 1. Update database for ALL players to receive
     const { error } = await supabase
@@ -751,10 +752,11 @@ export default function GameRoom() {
 
   const exactDuplicateClues = getAutoDeduplicatedClues(submittedClues);
   const visibleClues = submittedClues.filter((c) => {
+    if (!c?.clue) return false;
     const norm = normalizeClue(c.clue);
     return !invalidClues.includes(norm) && !exactDuplicateClues.has(norm);
   });
-  const keyWordText = typeof currentWord === 'object' ? currentWord.text : currentWord;
+  const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
 
   return (
@@ -917,7 +919,7 @@ export default function GameRoom() {
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
                         <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
                         <p className="text-3xl font-extrabold text-amber-300">
-                          {typeof currentWord === 'object' ? currentWord.text : currentWord}
+                          {keyWordText}
                         </p>
                       </div>
 
@@ -942,7 +944,7 @@ export default function GameRoom() {
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                           <p className="text-xs text-slate-400 uppercase tracking-wider">Key Word</p>
                           <p className="text-2xl font-bold text-amber-300 truncate">
-                            {typeof currentWord === 'object' ? currentWord.text : currentWord}
+                            {keyWordText}
                           </p>
                         </div>
                       </div>
@@ -1020,9 +1022,9 @@ export default function GameRoom() {
                       Chosen Word
                     </p>
                     <h2 className="text-5xl font-black text-amber-300 tracking-wide">
-                      {typeof currentWord === 'object' ? currentWord.text : currentWord}
+                      {keyWordText}
                     </h2>
-                    {typeof currentWord === 'object' && (
+                    {currentWord && typeof currentWord === 'object' && (
                       <p className="text-xs italic text-slate-400 mt-2">
                         Submitted by {getPlayerName(currentWord.authorId, currentWord.authorName)}
                       </p>
