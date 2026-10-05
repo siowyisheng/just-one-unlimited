@@ -1151,10 +1151,10 @@ export default function GameRoom() {
           {gameStatus === 'game_over' ? (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
               <h2 className="text-5xl font-extrabold text-red-500 mb-4 tracking-wider">
-                GAME OVER
+                NO KEYWORDS LEFT
               </h2>
               <p className="text-slate-300">
-                There are no valid words left for remaining guessers!
+                Add more keywords to continue.
               </p>
             </div>
           ) : gameStatus === 'in_round' ? (
