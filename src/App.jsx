@@ -1215,7 +1215,7 @@ export default function GameRoom() {
                         type="text"
                         value={myClueInput}
                         onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                        placeholder="Enter a one-word clue"
+                        placeholder="Enter a clue for the keyword"
                         className="flex-1 min-w-0 text-center bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-lg text-sky-400 font-extrabold placeholder:text-slate-500 placeholder:font-normal focus:outline-none focus:border-sky-400 transition-colors"
                       />
                       <button
