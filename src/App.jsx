@@ -8,6 +8,7 @@ import {
 
 import WordSubmissionWidget from './components/WordSubmissionWidget';
 import ClueCardsGrid from './components/ClueCardsGrid';
+import FeedbackWidget from './components/FeedbackWidget';
 
 /** Mid-round sibling card: keyword entry below the phase card (no status ping). */
 function AddMoreKeywordsCard(props) {
@@ -2338,6 +2339,8 @@ export default function GameRoom() {
       >
         based on Just One designed by Ludovic Roudy & Bruno Sautter
       </a>
+
+      <FeedbackWidget />
 
       {showGiveUpConfirm && (
         <div

@@ -30,6 +30,10 @@ jobs:
       - name: Install
         run: npm ci
       - name: Build
+        env:
+          # Set this repo secret so production feedback emails reach the inbox
+          # configured on the Web3Forms form (siowyisheng@gmail.com).
+          VITE_WEB3FORMS_ACCESS_KEY: ${{ secrets.VITE_WEB3FORMS_ACCESS_KEY }}
         run: npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
