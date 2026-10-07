@@ -1885,10 +1885,10 @@ export default function GameRoom() {
                 {!isGuesser && (
                   <button
                     onClick={handleNextWord}
-                    className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                    className="mt-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
                   >
                     <span>NEXT KEYWORD</span>
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                     </svg>
                   </button>
@@ -2023,10 +2023,10 @@ export default function GameRoom() {
                       {!isGuesser && (
                         <button
                           onClick={handleNextWord}
-                          className="mt-4 px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                          className="mt-4 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
                         >
                           <span>NEXT KEYWORD</span>
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
                         </button>
@@ -2070,10 +2070,10 @@ export default function GameRoom() {
 
                           <button
                             onClick={handleNextWord}
-                            className="flex-1 px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-1 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center justify-center gap-2"
                           >
                             <span>NEXT KEYWORD</span>
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                             </svg>
                           </button>
@@ -2260,7 +2260,7 @@ export default function GameRoom() {
                           Hide repeated or disallowed clues
                         </h3>
 
-                        {/* READY — visual cooldown overlay for READY_FOR_GUESSER_DELAY_SECONDS */}
+                        {/* READY — disabled chrome slides down over READY_FOR_GUESSER_DELAY_SECONDS */}
                         <button
                           type="button"
                           onClick={handleConfirmCluesReady}
@@ -2268,10 +2268,11 @@ export default function GameRoom() {
                           aria-busy={readyDelaySeconds > 0}
                           className={
                             readyDelaySeconds > 0
-                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm tracking-wide'
+                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm'
                               : 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
                           }
                         >
+                          {/* Active primary underneath; curtain reveals it as cooldown completes */}
                           <span className="relative z-0">READY</span>
                           {readyDelaySeconds > 0 && (
                             <span
