@@ -177,6 +177,8 @@ export default function GameRoom() {
   const [playedKeywords, setPlayedKeywords] = useState([]);
   const advancingRoundRef = useRef(false);
   const skipKeywordInFlightRef = useRef(false);
+  const clueTakeBackInFlightRef = useRef(false);
+  const clueSubmitInFlightRef = useRef(false);
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -941,16 +943,72 @@ export default function GameRoom() {
     }
   };
 
+  // Read-modify-write submitted_clues with CAS so concurrent take-backs / submits
+  // do not clobber each other (last-write-wins on the whole array).
+  const casUpdateSubmittedClues = async (expectedText, mutate, maxAttempts = 5) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const { data: row, error: readError } = await supabase
+        .from('game_sessions')
+        .select('submitted_clues, game_status, current_word')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      if (readError) return { ok: false, error: readError, clues: null };
+      if (!row || row.game_status !== 'in_round') {
+        return { ok: false, error: null, clues: null, aborted: true };
+      }
+      if (String(keywordText(row.current_word) ?? '').trim() !== expectedText) {
+        return { ok: false, error: null, clues: null, aborted: true };
+      }
+
+      const prev = Array.isArray(row.submitted_clues) ? row.submitted_clues : [];
+      const next = mutate(prev);
+      if (next == null) {
+        return { ok: false, error: null, clues: prev, aborted: true };
+      }
+
+      const unchanged =
+        next.length === prev.length &&
+        next.every(
+          (c, i) =>
+            c?.playerKey === prev[i]?.playerKey &&
+            c?.clue === prev[i]?.clue &&
+            c?.username === prev[i]?.username
+        );
+      if (unchanged) {
+        return { ok: true, error: null, clues: prev };
+      }
+
+      const { data: updated, error } = await supabase
+        .from('game_sessions')
+        .update({ submitted_clues: next })
+        .eq('id', sessionId)
+        .eq('game_status', 'in_round')
+        .eq('current_word->>text', expectedText)
+        .eq('submitted_clues', prev)
+        .select('submitted_clues');
+
+      if (error) return { ok: false, error, clues: null };
+      if (updated?.length) {
+        return { ok: true, error: null, clues: updated[0].submitted_clues };
+      }
+      // CAS miss (another client changed submitted_clues) — retry.
+    }
+    return { ok: false, error: null, clues: null, aborted: true };
+  };
+
   // Handle Giving a Clue
   const handleGiveClue = async (e) => {
     e.preventDefault();
     const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
-    if (!trimmed || !sessionId) return;
+    if (!trimmed || !sessionId || clueSubmitInFlightRef.current) return;
+    if (submittedClues.some((c) => c.playerKey === CLIENT_ID)) return;
 
     const expectedText = String(keywordText(currentWord) ?? '').trim();
     if (!expectedText) return;
 
     clearTyping();
+    clueSubmitInFlightRef.current = true;
 
     const newClueEntry = {
       clue: trimmed,
@@ -958,25 +1016,88 @@ export default function GameRoom() {
       username: myUsername,
     };
 
-    const updatedClues = [...submittedClues, newClueEntry];
-    setSubmittedClues(updatedClues);
+    const optimistic = [...submittedClues, newClueEntry];
+    setSubmittedClues(optimistic);
     setMyClueInput('');
 
-    // CAS on keyword so a concurrent SKIP cannot leave stale clues on the new word.
-    const { data: updated, error } = await supabase
-      .from('game_sessions')
-      .update({ submitted_clues: updatedClues })
-      .eq('id', sessionId)
-      .eq('current_word->>text', expectedText)
-      .select('id');
+    try {
+      const { ok, error, clues, aborted } = await casUpdateSubmittedClues(
+        expectedText,
+        (prev) => {
+          if (prev.some((c) => c.playerKey === CLIENT_ID)) return prev;
+          return [...prev, newClueEntry];
+        }
+      );
 
-    if (error) {
-      console.error('Error submitting clue:', error);
-      return;
+      if (error) {
+        console.error('Error submitting clue:', error);
+        setSubmittedClues((prev) => prev.filter((c) => c.playerKey !== CLIENT_ID));
+        setMyClueInput(trimmed);
+        return;
+      }
+      if (!ok || aborted) {
+        // Keyword skipped / phase changed; realtime will resync.
+        setSubmittedClues((prev) => prev.filter((c) => c.playerKey !== CLIENT_ID));
+        return;
+      }
+      if (Array.isArray(clues)) setSubmittedClues(clues);
+    } finally {
+      clueSubmitInFlightRef.current = false;
     }
-    if (!updated?.length) {
-      // Keyword was skipped (or otherwise changed); realtime will resync.
-      setSubmittedClues((prev) => prev.filter((c) => c !== newClueEntry));
+  };
+
+  // Take back own clue while still waiting on other clue givers, then re-enter.
+  const handleTakeBackClue = async () => {
+    if (!sessionId || clueTakeBackInFlightRef.current) return;
+    if (gameStatus !== 'in_round') return;
+
+    const myClue = submittedClues.find((c) => c.playerKey === CLIENT_ID);
+    if (!myClue) return;
+
+    const clueGiverCount = onlinePlayers.filter((p) => p.key !== currentGuesserId).length;
+    if (clueGiverCount > 0 && submittedClues.length >= clueGiverCount) return;
+
+    const expectedText = String(keywordText(currentWord) ?? '').trim();
+    if (!expectedText) return;
+
+    clueTakeBackInFlightRef.current = true;
+    const previousClueText = myClue.clue || '';
+    const snapshotBefore = submittedClues;
+
+    setSubmittedClues((prev) => prev.filter((c) => c.playerKey !== CLIENT_ID));
+    setMyClueInput(previousClueText);
+
+    try {
+      const { ok, error, clues, aborted } = await casUpdateSubmittedClues(
+        expectedText,
+        (prev) => {
+          if (!prev.some((c) => c.playerKey === CLIENT_ID)) return prev;
+          // Once every clue giver has submitted, take-back is closed.
+          if (clueGiverCount > 0 && prev.length >= clueGiverCount) return null;
+          return prev.filter((c) => c.playerKey !== CLIENT_ID);
+        }
+      );
+
+      if (error) {
+        console.error('Error taking back clue:', error);
+        setSubmittedClues(snapshotBefore);
+        setMyClueInput('');
+        return;
+      }
+      if (!ok || aborted) {
+        // Too late (review started) or keyword/phase changed — restore or resync.
+        if (Array.isArray(clues) && clues.some((c) => c.playerKey === CLIENT_ID)) {
+          setSubmittedClues(clues);
+          setMyClueInput('');
+        } else if (!aborted) {
+          setSubmittedClues(snapshotBefore);
+          setMyClueInput('');
+        }
+        return;
+      }
+      if (Array.isArray(clues)) setSubmittedClues(clues);
+    } finally {
+      clueTakeBackInFlightRef.current = false;
     }
   };
 
@@ -1283,8 +1404,14 @@ export default function GameRoom() {
   // User details & round helpers
   const isGuesser = CLIENT_ID === currentGuesserId;
   const numClueGivers = onlinePlayers.filter((p) => p.key !== currentGuesserId).length;
-  const hasSubmittedMyClue = submittedClues.some((c) => c.playerKey === CLIENT_ID);
+  const mySubmittedClue = submittedClues.find((c) => c.playerKey === CLIENT_ID) || null;
+  const hasSubmittedMyClue = Boolean(mySubmittedClue);
   const allCluesSubmitted = submittedClues.length >= numClueGivers && numClueGivers > 0;
+  const canTakeBackClue =
+    !isGuesser &&
+    hasSubmittedMyClue &&
+    !allCluesSubmitted &&
+    gameStatus === 'in_round';
 
   // Guesser give-up: mark every clue invisible so the existing zero-clue
   // roundLost path runs for all clients (same loss UI, no new column).
@@ -1686,10 +1813,25 @@ export default function GameRoom() {
                     </form>
                   )}
 
-                  {hasSubmittedMyClue && !allCluesSubmitted && (
-                    <p className={waitingLineClass}>
-                      Waiting for other clue givers...
-                    </p>
+                  {canTakeBackClue && (
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="w-full text-center bg-slate-900/60 p-5 rounded-xl border border-slate-700">
+                        <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
+                          Your clue
+                        </p>
+                        <p className={clueWordClass}>{mySubmittedClue.clue}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTakeBackClue}
+                        className="self-center px-4 py-2 text-sm font-semibold text-slate-400 hover:text-amber-300 bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors cursor-pointer uppercase tracking-wide"
+                      >
+                        Change clue
+                      </button>
+                      <p className={waitingLineClass}>
+                        Waiting for other clue givers...
+                      </p>
+                    </div>
                   )}
 
                   {/* Shared Clues & Visibility Filter View */}
