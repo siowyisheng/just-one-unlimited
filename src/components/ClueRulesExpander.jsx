@@ -1,4 +1,4 @@
-/** Collapsed clue-rules helper for clue givers during Give a Clue. */
+/** Collapsed clue-rules helper for clue givers (Give a Clue + Check Clues). */
 const clueEx = 'font-extrabold text-sky-400';
 const keywordEx = 'font-extrabold text-amber-500';
 
