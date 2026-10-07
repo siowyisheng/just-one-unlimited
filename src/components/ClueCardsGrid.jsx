@@ -1,15 +1,14 @@
 import React from 'react';
 
-const EMPTY_CLUE_PLACEHOLDER = '\u2014'; // em dash
-
 /**
  * Shared clue cards grid used by the filter review phase, end-of-round
  * results (victory / loss), and the clue-giving waiting view.
  * Matches filter styling for hidden & duplicate clues.
  *
- * Set `waitingDisplay` during clue-giving so placeholder / masked text
- * (`—`, `******`) is not treated as duplicates or hideable, and so slots
- * still render when the clue string is empty.
+ * Set `waitingDisplay` during clue-giving so empty / masked text
+ * (`''`, `******`) is not treated as duplicates or hideable, and so slots
+ * still render when the clue string is empty. Pass `isTyping` on a clue
+ * row to show the bouncing-dots indicator in the clue text area.
  */
 export default function ClueCardsGrid({
   clues,
@@ -35,14 +34,14 @@ export default function ClueCardsGrid({
     <div className="grid grid-cols-2 gap-3 w-full">
       {clues.map((c, idx) => {
         // Filter/results: skip rows with no clue text.
-        // Waiting: always paint a slot (dash if empty) so the grid never
+        // Waiting: always paint a slot (blank if empty) so the grid never
         // collapses when presence/submit state is still catching up.
-        const displayClue = c?.clue
-          ? c.clue
-          : waitingDisplay
-            ? EMPTY_CLUE_PLACEHOLDER
-            : null;
-        if (!displayClue) return null;
+        const hasClueText = Boolean(c?.clue);
+        const displayClue = hasClueText ? c.clue : waitingDisplay ? '' : null;
+        if (displayClue === null) return null;
+
+        const showTyping =
+          waitingDisplay && !hasClueText && Boolean(c?.isTyping);
 
         const isTakeBackCard =
           canTakeBack && c.playerKey && c.playerKey === takeBackPlayerKey;
@@ -81,8 +80,26 @@ export default function ClueCardsGrid({
               </span>
             ) : null}
 
-            <p className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''}`}>
-              {displayClue}
+            <p
+              className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''} ${
+                showTyping || (waitingDisplay && !hasClueText)
+                  ? 'min-h-[2rem] flex items-center justify-center'
+                  : ''
+              }`}
+            >
+              {showTyping ? (
+                <span
+                  className="typing-indicator"
+                  aria-label="typing"
+                  title="Typing"
+                >
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                </span>
+              ) : (
+                displayClue
+              )}
             </p>
             <p className="text-xs italic text-slate-400 mt-1">
               by {getPlayerName(c.playerKey, c.username)}
