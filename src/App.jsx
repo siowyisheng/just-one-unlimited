@@ -2323,27 +2323,29 @@ export default function GameRoom() {
                     {guessPhaseTitle}
                   </span>
                 </div>
-                <div
-                  className={`guess-countdown ${guessCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${guessCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
-                  role="timer"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  aria-label={`${guessCountdownSeconds} seconds remaining`}
-                >
-                  <svg className="guess-countdown__ring" viewBox="0 0 36 36" aria-hidden="true">
-                    <circle className="guess-countdown__track" cx="18" cy="18" r="15.5" />
-                    <circle
-                      className="guess-countdown__progress"
-                      cx="18"
-                      cy="18"
-                      r="15.5"
-                      style={{
-                        strokeDasharray: `${guessCountdownProgress * 97.4} 97.4`,
-                      }}
-                    />
-                  </svg>
-                  <span className="guess-countdown__value">{guessCountdownSeconds}</span>
-                </div>
+                {!showRoundResult && (
+                  <div
+                    className={`guess-countdown ${guessCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${guessCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
+                    role="timer"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    aria-label={`${guessCountdownSeconds} seconds remaining`}
+                  >
+                    <svg className="guess-countdown__ring" viewBox="0 0 36 36" aria-hidden="true">
+                      <circle className="guess-countdown__track" cx="18" cy="18" r="15.5" />
+                      <circle
+                        className="guess-countdown__progress"
+                        cx="18"
+                        cy="18"
+                        r="15.5"
+                        style={{
+                          strokeDasharray: `${guessCountdownProgress * 97.4} 97.4`,
+                        }}
+                      />
+                    </svg>
+                    <span className="guess-countdown__value">{guessCountdownSeconds}</span>
+                  </div>
+                )}
               </div>
 
               {/* SUB-PHASE A: GUESS IN PROGRESS (No guess submitted yet) */}
