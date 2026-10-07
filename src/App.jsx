@@ -657,45 +657,99 @@ export default function GameRoom() {
     );
   };
 
-  // Helper: Start Next Round Logic with Weighted Word Selection
+  // Helper: Start Next Round Logic with Weighted Word Selection.
+  // When retiring a keyword (NEXT KEYWORD / playedEntry), concurrent clicks are
+  // safe via compare-and-swap on current_word text — only the first successful
+  // UPDATE appends to board_state and advances the round (same idea as SKIP).
   const startNextRound = async (availableWords, playerList, playedEntry) => {
-    // 1. Fetch existing player_word_counts and the played-keyword history
+    const expectedKeywordText = playedEntry
+      ? String(playedEntry.text ?? '').trim()
+      : null;
+
+    // 1. Fetch counts, played history, and (when advancing) the server word pool
     const { data: sessionData } = await supabase
       .from('game_sessions')
-      .select('player_word_counts, board_state')
+      .select('player_word_counts, board_state, word_list, current_word')
       .eq('id', sessionId)
       .single();
 
     const counts = sessionData?.player_word_counts || {};
     const existingPlayed = Array.isArray(sessionData?.board_state) ? sessionData.board_state : [];
-    const nextPlayed = playedEntry ? [...existingPlayed, playedEntry] : existingPlayed;
-    if (playedEntry) setPlayedKeywords(nextPlayed);
 
-    const pick = pickGuesserAndWord(availableWords, playerList, counts);
+    // Prefer the server word list when retiring a keyword so racing clients
+    // share one pool (local wordList can lag a concurrent skip/advance).
+    const wordsForPick = expectedKeywordText
+      ? (sessionData?.word_list || availableWords)
+      : availableWords;
+
+    // Append-once: skip if this keyword is already in past history.
+    let nextPlayed = existingPlayed;
+    if (playedEntry) {
+      const entryNorm = normalizeKeyword(playedEntry.text);
+      const alreadyLogged = existingPlayed.some(
+        (item) => normalizeKeyword(keywordText(item)) === entryNorm
+      );
+      if (!alreadyLogged) {
+        nextPlayed = [...existingPlayed, playedEntry];
+      }
+    }
+
+    // Another client already advanced past this keyword — no-op.
+    if (expectedKeywordText) {
+      const serverText = String(keywordText(sessionData?.current_word) ?? '').trim();
+      if (serverText !== expectedKeywordText) return;
+    }
+
+    const pick = pickGuesserAndWord(wordsForPick, playerList, counts);
+
+    // CAS when retiring a keyword: UPDATE … WHERE id AND same current_word text.
+    // .select() returns rows only when the WHERE matched — empty means we lost.
+    const applyAdvanceUpdate = (patch) => {
+      let query = supabase
+        .from('game_sessions')
+        .update(patch)
+        .eq('id', sessionId);
+      if (expectedKeywordText) {
+        query = query.eq('current_word->>text', expectedKeywordText);
+      }
+      return query.select('id');
+    };
 
     if (pick.kind === 'game_over') {
-      await supabase
-        .from('game_sessions')
-        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
-        .eq('id', sessionId);
+      const { data: updated, error } = await applyAdvanceUpdate({
+        game_status: 'game_over',
+        round_won: false,
+        board_state: nextPlayed,
+      });
+      if (error) {
+        console.error('Error ending game after next keyword:', error);
+        return;
+      }
+      if (expectedKeywordText && !updated?.length) return;
+      if (playedEntry) setPlayedKeywords(nextPlayed);
       return;
     }
 
-    await supabase
-      .from('game_sessions')
-      .update({
-        game_status: 'in_round',
-        current_guesser_id: pick.chosenGuesser.key,
-        current_word: pick.selectedWord,
-        submitted_clues: [],
-        invalid_clues: [],
-        submitted_guess: null,
-        round_won: false,
-        word_list: pick.updatedWordList,
-        player_word_counts: pick.updatedCounts,
-        board_state: nextPlayed,
-      })
-      .eq('id', sessionId);
+    const { data: updated, error } = await applyAdvanceUpdate({
+      game_status: 'in_round',
+      current_guesser_id: pick.chosenGuesser.key,
+      current_word: pick.selectedWord,
+      submitted_clues: [],
+      invalid_clues: [],
+      submitted_guess: null,
+      round_won: false,
+      word_list: pick.updatedWordList,
+      player_word_counts: pick.updatedCounts,
+      board_state: nextPlayed,
+    });
+
+    if (error) {
+      console.error('Error advancing to next keyword:', error);
+      return;
+    }
+    if (expectedKeywordText && !updated?.length) return;
+
+    if (playedEntry) setPlayedKeywords(nextPlayed);
   };
   startNextRoundRef.current = startNextRound;
 
@@ -1057,7 +1111,9 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
-  // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word)
+  // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word).
+  // Concurrent clicks across clients are serialized in startNextRound via CAS
+  // on current_word text + append-once dedupe into board_state.
   const handleNextWord = async () => {
     if (!sessionId || advancingRoundRef.current) return;
     advancingRoundRef.current = true;
