@@ -1907,7 +1907,7 @@ export default function GameRoom() {
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                    Guessing Phase
+                    {isGuesser ? 'Guess the Keyword' : 'Trust the Clues'}
                   </span>
                 </div>
                 <div
