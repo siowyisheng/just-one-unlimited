@@ -9,8 +9,12 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * Matches filter styling for hidden & duplicate clues.
  *
  * Only truly hidden cards (manual hide or exact-duplicate) get faded /
- * strikethrough chrome plus a HIDDEN or DUPLICATE badge. Guesser-masked
- * `******` submitted cards use normal submitted chrome — not the hidden look.
+ * strikethrough chrome plus a HIDDEN or DUPLICATE badge. Plain guesser-
+ * masked `******` cards stay normal submitted chrome.
+ *
+ * Waiting rows may set `hideStatus: 'hidden' | 'duplicate'` (from real
+ * submitted text + synced invalid_clues) so the guesser's masked cards
+ * pick up the same live hide styling without revealing the clue word.
  *
  * Set `waitingDisplay` during clue-giving so empty / masked text
  * (`''`, `******`) is not treated as duplicates or hideable, and so slots
@@ -116,16 +120,24 @@ export default function ClueCardsGrid({
           Boolean(c?.playerKey) &&
           c.playerKey === bonkingPlayerKey;
 
-        const isExactDup =
-          !waitingDisplay &&
-          typeof isExactDuplicateClue === 'function' &&
-          isExactDuplicateClue(c.clue, clues);
+        // Prefer row hideStatus (waiting/masked path from App) so ****** cards
+        // can mirror synced hides without using the placeholder as the clue.
+        const hideFromRow = c?.hideStatus === 'hidden' || c?.hideStatus === 'duplicate';
+        const isExactDup = hideFromRow
+          ? c.hideStatus === 'duplicate'
+          : !waitingDisplay &&
+            typeof isExactDuplicateClue === 'function' &&
+            isExactDuplicateClue(c.clue, clues);
         const norm =
-          !waitingDisplay && typeof normalizeClue === 'function' && c?.clue
+          !waitingDisplay &&
+          !hideFromRow &&
+          typeof normalizeClue === 'function' &&
+          c?.clue
             ? normalizeClue(c.clue)
             : '';
-        const isManuallyHidden =
-          !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
+        const isManuallyHidden = hideFromRow
+          ? c.hideStatus === 'hidden'
+          : !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
         const isInvisible = isExactDup || isManuallyHidden;
         // Masked `******` alone is not hidden — only manual hide / exact-dup are.
         const showHiddenVisual = isInvisible;

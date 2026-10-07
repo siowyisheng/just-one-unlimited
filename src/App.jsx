@@ -1707,10 +1707,21 @@ export default function GameRoom() {
     } else {
       clue = MASKED_CLUE_PLACEHOLDER;
     }
+    // Hide status from real submitted text + synced invalid_clues so the
+    // guesser's masked ****** cards mirror check-clues toggles live.
+    // Never derived from the masked placeholder string.
+    let hideStatus = null;
+    if (submitted?.clue) {
+      const isDup = isExactDuplicateClue(submitted.clue, submittedClues);
+      const norm = normalizeClue(submitted.clue);
+      if (isDup) hideStatus = 'duplicate';
+      else if (invalidClues.includes(norm)) hideStatus = 'hidden';
+    }
     return {
       playerKey: p.key,
       username: p.username,
       clue,
+      hideStatus,
       // Clue-phase typing shows on the CLUE card, not the PLAYERS row.
       isTyping: Boolean(playerOnline?.isTyping) && !submitted?.clue,
     };
