@@ -313,3 +313,31 @@ code {
 .clue-card-bonk-shake {
   animation: clue-card-bonk-shake 0.5s ease-in-out;
 }
+
+/* Check-clues READY: disabled slate/amber filter slides down over the delay */
+@keyframes ready-btn-cooldown-slide {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.ready-btn-cooldown-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: inherit;
+  background: #334155; /* slate-700 */
+  color: #fbbf24; /* amber-400 */
+  border: 1px solid rgba(245, 158, 11, 0.3); /* amber-500/30 */
+  box-sizing: border-box;
+  animation-name: ready-btn-cooldown-slide;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}

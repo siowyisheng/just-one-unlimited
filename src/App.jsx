@@ -178,7 +178,7 @@ const LOSS_PHRASES = [
 const GUESS_COUNTDOWN_SECONDS = 30;
 const GUESS_TIMEOUT_SECONDS = 31;
 
-// Clue-review: delay before READY FOR GUESSER is clickable (client-local).
+// Clue-review: delay before READY is clickable (client-local).
 const READY_FOR_GUESSER_DELAY_SECONDS = 3;
 
 const guesserTurnStartedAtOf = (word) =>
@@ -1712,7 +1712,7 @@ export default function GameRoom() {
     };
   });
 
-  // Client-local delay before READY FOR GUESSER: starts when review UI appears
+  // Client-local delay before READY: starts when review UI appears
   // (all clues in), not from earlier page load / clue-giving wait.
   useEffect(() => {
     if (gameStatus !== 'in_round' || !allCluesSubmitted) {
@@ -2232,29 +2232,35 @@ export default function GameRoom() {
                       />
 
                       <div className="flex flex-col items-center gap-3 text-center">
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                            Review & Filter Clues
-                          </h3>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Click virtually identical clues to hide them from the guesser.
-                          </p>
-                        </div>
+                        <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                          Hide Repeated or Disallowed Clues
+                        </h3>
 
-                        {/* READY Button — disabled for READY_FOR_GUESSER_DELAY_SECONDS */}
+                        {/* READY — visual cooldown overlay for READY_FOR_GUESSER_DELAY_SECONDS */}
                         <button
                           type="button"
                           onClick={handleConfirmCluesReady}
                           disabled={readyDelaySeconds > 0}
+                          aria-busy={readyDelaySeconds > 0}
                           className={
                             readyDelaySeconds > 0
-                              ? 'px-5 py-2.5 bg-slate-700 text-amber-400 border border-amber-500/30 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm tracking-wide'
-                              : 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
+                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm tracking-wide'
+                              : 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
                           }
                         >
-                          {readyDelaySeconds > 0
-                            ? `READY IN ${readyDelaySeconds}…`
-                            : 'READY FOR GUESSER'}
+                          <span className="relative z-0">READY</span>
+                          {readyDelaySeconds > 0 && (
+                            <span
+                              key={`${currentWordKey}-ready-cooldown`}
+                              className="ready-btn-cooldown-overlay"
+                              style={{
+                                animationDuration: `${READY_FOR_GUESSER_DELAY_SECONDS}s`,
+                              }}
+                              aria-hidden="true"
+                            >
+                              READY
+                            </span>
+                          )}
                         </button>
                       </div>
                     </>
