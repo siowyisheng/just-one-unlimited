@@ -9,6 +9,9 @@ import React from 'react';
  * (`''`, `******`) is not treated as duplicates or hideable, and so slots
  * still render when the clue string is empty. Pass `isTyping` on a clue
  * row to show the bouncing-dots indicator in the clue text area.
+ *
+ * Empty waiting slots can call `onBonk(playerKey)` ("bonk" the clue giver).
+ * Submitted cards (masked or own) do not bonk; own take-back stays take-back.
  */
 export default function ClueCardsGrid({
   clues,
@@ -24,11 +27,14 @@ export default function ClueCardsGrid({
   /** When set, that player's card is clickable to take back / change their clue. */
   takeBackPlayerKey = null,
   onTakeBack = null,
+  /** Clue-giving: click an empty slot to hurry that giver (bonk). */
+  onBonk = null,
 }) {
   if (!Array.isArray(clues) || clues.length === 0) return null;
 
   const canTakeBack =
     Boolean(takeBackPlayerKey) && typeof onTakeBack === 'function';
+  const canBonk = waitingDisplay && typeof onBonk === 'function';
 
   return (
     <div className="grid grid-cols-2 gap-3 w-full">
@@ -45,6 +51,10 @@ export default function ClueCardsGrid({
 
         const isTakeBackCard =
           canTakeBack && c.playerKey && c.playerKey === takeBackPlayerKey;
+
+        // Only empty waiting slots bonk — not masked ****** or own submitted clue.
+        const isBonkCard =
+          canBonk && !hasClueText && !isTakeBackCard && Boolean(c?.playerKey);
 
         const isExactDup =
           !waitingDisplay &&
@@ -70,7 +80,9 @@ export default function ClueCardsGrid({
             ? `opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] ${canToggle ? 'cursor-pointer hover:border-sky-400/40' : 'cursor-default'}`
             : isTakeBackCard
               ? 'bg-slate-700/70 border-slate-600/80 shadow-md hover:border-rose-400/70 cursor-pointer'
-              : `bg-slate-700/70 border-slate-600/80 shadow-md ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
+              : isBonkCard
+                ? 'bg-slate-700/70 border-slate-600/80 shadow-md cursor-pointer hover:border-slate-500'
+                : `bg-slate-700/70 border-slate-600/80 shadow-md ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
         const cardBody = (
           <>
@@ -115,6 +127,21 @@ export default function ClueCardsGrid({
               onClick={onTakeBack}
               aria-label="Change clue"
               title="Change clue"
+              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative w-full ${baseChrome}`}
+            >
+              {cardBody}
+            </button>
+          );
+        }
+
+        if (isBonkCard) {
+          return (
+            <button
+              key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
+              type="button"
+              onClick={() => onBonk(c.playerKey)}
+              aria-label={`Bonk ${getPlayerName(c.playerKey, c.username)}`}
+              title="Bonk"
               className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative w-full ${baseChrome}`}
             >
               {cardBody}

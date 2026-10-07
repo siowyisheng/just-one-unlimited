@@ -157,6 +157,7 @@ const sortPlayersByJoinOrder = (players) =>
 
 const CLIENT_ID = getPersistentClientId();
 const CLUE_GLOW_MS = 1000;
+const CLUE_BONK_MS = 500;
 const TYPING_IDLE_MS = 1000;
 const WIN_PHRASES = [
   'NAILED IT!',
@@ -218,6 +219,10 @@ export default function GameRoom() {
   const skipKeywordAnchorRef = useRef(null);
   const clueTakeBackInFlightRef = useRef(false);
   const clueSubmitInFlightRef = useRef(false);
+  // Ephemeral "bonk" shake on this client's clue form (hurry-up nudge).
+  const [clueFormBonking, setClueFormBonking] = useState(false);
+  const clueBonkTimerRef = useRef(null);
+  const applyClueFormBonkRef = useRef(() => {});
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -418,9 +423,31 @@ export default function GameRoom() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameStatus]);
 
+  const applyClueFormBonk = () => {
+    // Restart the CSS animation if already shaking (re-bonk).
+    setClueFormBonking(false);
+    window.requestAnimationFrame(() => {
+      setClueFormBonking(true);
+    });
+    window.clearTimeout(clueBonkTimerRef.current);
+    clueBonkTimerRef.current = window.setTimeout(() => {
+      setClueFormBonking(false);
+      clueBonkTimerRef.current = null;
+    }, CLUE_BONK_MS);
+  };
+  applyClueFormBonkRef.current = applyClueFormBonk;
+
+  // Clear bonk shake when leaving clue-giving (or any status change).
+  useEffect(() => {
+    window.clearTimeout(clueBonkTimerRef.current);
+    clueBonkTimerRef.current = null;
+    setClueFormBonking(false);
+  }, [gameStatus]);
+
   useEffect(() => {
     return () => {
       window.clearTimeout(typingIdleTimerRef.current);
+      window.clearTimeout(clueBonkTimerRef.current);
     };
   }, []);
 
@@ -748,6 +775,13 @@ export default function GameRoom() {
         queueMicrotask(() => tryStartRoundIfReady(next));
         return next;
       });
+    });
+
+    // Clue-giving "bonk": shake the target's clue form. Ephemeral broadcast only.
+    channel.on('broadcast', { event: 'clue_bonk' }, ({ payload }) => {
+      const playerKey = payload?.playerKey;
+      if (!playerKey || playerKey !== CLIENT_ID) return;
+      applyClueFormBonkRef.current();
     });
 
     channel.subscribe(async (status) => {
@@ -1261,6 +1295,24 @@ export default function GameRoom() {
     } finally {
       clueTakeBackInFlightRef.current = false;
     }
+  };
+
+  // Clue-giving "bonk": click an empty CLUE card to shake that giver's form.
+  // Broadcast-only (like typing) — no board_state write.
+  const handleBonkClueGiver = (playerKey) => {
+    if (!playerKey || !sessionId) return;
+    if (gameStatus !== 'in_round') return;
+    if (submittedClues.some((c) => c.playerKey === playerKey)) return;
+
+    // Self-bonk applies locally; peers do not echo broadcast to the sender.
+    if (playerKey === CLIENT_ID) applyClueFormBonk();
+
+    if (!channelRef.current) return;
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'clue_bonk',
+      payload: { playerKey },
+    });
   };
 
   const invalidClueSig = (list) => (Array.isArray(list) ? list.join('\u0000') : '');
@@ -2076,6 +2128,7 @@ export default function GameRoom() {
                     getPlayerName={getPlayerName}
                     clueWordClass={clueWordClass}
                     waitingDisplay
+                    onBonk={handleBonkClueGiver}
                   />
                   <p className={waitingLineClass}>
                     Waiting for clue givers...
@@ -2129,7 +2182,7 @@ export default function GameRoom() {
                     )}
                   </div>
 
-                  {/* Waiting clue cards — same chrome as filter/guess; display-only except own take-back */}
+                  {/* Waiting clue cards — empty slots bonk; own submitted stays take-back */}
                   {!allCluesSubmitted && (
                     <ClueCardsGrid
                       clues={clueGivingDisplayClues}
@@ -2138,12 +2191,16 @@ export default function GameRoom() {
                       waitingDisplay
                       takeBackPlayerKey={canTakeBackClue ? CLIENT_ID : null}
                       onTakeBack={canTakeBackClue ? handleTakeBackClue : null}
+                      onBonk={handleBonkClueGiver}
                     />
                   )}
 
                   {/* Clue Input Form (until this player has submitted) */}
                   {!hasSubmittedMyClue && (
-                    <form onSubmit={handleGiveClue} className="flex w-full">
+                    <form
+                      onSubmit={handleGiveClue}
+                      className={`flex w-full ${clueFormBonking ? 'clue-form-bonk-shake' : ''}`}
+                    >
                       <input
                         type="text"
                         value={myClueInput}
