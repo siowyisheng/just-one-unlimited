@@ -12,6 +12,7 @@ import React from 'react';
  *
  * Empty waiting slots can call `onBonk(playerKey)` ("bonk" the clue giver).
  * Submitted cards (masked or own) do not bonk; own take-back stays take-back.
+ * Pass `bonkingPlayerKey` to play the shared rotating card-shake animation.
  */
 export default function ClueCardsGrid({
   clues,
