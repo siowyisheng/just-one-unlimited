@@ -382,6 +382,17 @@ export default function GameRoom() {
   const [clueCardBonkingKey, setClueCardBonkingKey] = useState(null);
   const clueCardBonkTimerRef = useRef(null);
   const applyClueCardBonkRef = useRef(() => {});
+  // Local polish animations (no broadcast).
+  const [clueLockInKey, setClueLockInKey] = useState(null);
+  const clueLockInTimerRef = useRef(null);
+  const [readyBtnPulse, setReadyBtnPulse] = useState(false);
+  const readyBtnPulseTimerRef = useRef(null);
+  const [nextKeywordPulse, setNextKeywordPulse] = useState(false);
+  const nextKeywordPulseTimerRef = useRef(null);
+  const [enteringPlayerKeys, setEnteringPlayerKeys] = useState(() => new Set());
+  const seenPlayerKeysRef = useRef(new Set());
+  const playersListHydratedRef = useRef(false);
+  const enteringPlayerTimersRef = useRef(new Map());
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -417,6 +428,80 @@ export default function GameRoom() {
       winPhraseRef.current = WIN_PHRASES[Math.floor(Math.random() * WIN_PHRASES.length)];
     }
     return winPhraseRef.current;
+  };
+
+  // Soft fade-in for newly joined PLAYERS rows (skip first hydration).
+  useEffect(() => {
+    const currentKeys = new Set(onlinePlayers.map((p) => p.key));
+
+    for (const key of [...seenPlayerKeysRef.current]) {
+      if (!currentKeys.has(key)) seenPlayerKeysRef.current.delete(key);
+    }
+
+    if (onlinePlayers.length === 0) return;
+
+    if (!playersListHydratedRef.current) {
+      onlinePlayers.forEach((p) => seenPlayerKeysRef.current.add(p.key));
+      playersListHydratedRef.current = true;
+      return;
+    }
+
+    const newcomers = onlinePlayers.filter(
+      (p) => !seenPlayerKeysRef.current.has(p.key)
+    );
+    if (newcomers.length === 0) return;
+
+    newcomers.forEach((p) => seenPlayerKeysRef.current.add(p.key));
+    setEnteringPlayerKeys((prev) => {
+      const next = new Set(prev);
+      newcomers.forEach((p) => next.add(p.key));
+      return next;
+    });
+
+    newcomers.forEach((p) => {
+      const existing = enteringPlayerTimersRef.current.get(p.key);
+      if (existing) window.clearTimeout(existing);
+      const timer = window.setTimeout(() => {
+        enteringPlayerTimersRef.current.delete(p.key);
+        setEnteringPlayerKeys((prev) => {
+          if (!prev.has(p.key)) return prev;
+          const next = new Set(prev);
+          next.delete(p.key);
+          return next;
+        });
+      }, 400);
+      enteringPlayerTimersRef.current.set(p.key, timer);
+    });
+  }, [onlinePlayers]);
+
+  const playClueLockIn = (playerKey) => {
+    if (!playerKey) return;
+    if (clueLockInTimerRef.current) window.clearTimeout(clueLockInTimerRef.current);
+    setClueLockInKey(playerKey);
+    clueLockInTimerRef.current = window.setTimeout(() => {
+      setClueLockInKey(null);
+      clueLockInTimerRef.current = null;
+    }, 360);
+  };
+
+  const playReadyBtnPulse = () => {
+    if (readyBtnPulseTimerRef.current) window.clearTimeout(readyBtnPulseTimerRef.current);
+    setReadyBtnPulse(true);
+    readyBtnPulseTimerRef.current = window.setTimeout(() => {
+      setReadyBtnPulse(false);
+      readyBtnPulseTimerRef.current = null;
+    }, 400);
+  };
+
+  const playNextKeywordPulse = () => {
+    if (nextKeywordPulseTimerRef.current) {
+      window.clearTimeout(nextKeywordPulseTimerRef.current);
+    }
+    setNextKeywordPulse(true);
+    nextKeywordPulseTimerRef.current = window.setTimeout(() => {
+      setNextKeywordPulse(false);
+      nextKeywordPulseTimerRef.current = null;
+    }, 400);
   };
 
   // Clue Glow / Flash State
@@ -605,12 +690,20 @@ export default function GameRoom() {
     window.clearTimeout(clueCardBonkTimerRef.current);
     clueCardBonkTimerRef.current = null;
     setClueCardBonkingKey(null);
+    window.clearTimeout(clueLockInTimerRef.current);
+    clueLockInTimerRef.current = null;
+    setClueLockInKey(null);
   }, [gameStatus]);
 
   useEffect(() => {
     return () => {
       window.clearTimeout(typingIdleTimerRef.current);
       window.clearTimeout(clueCardBonkTimerRef.current);
+      window.clearTimeout(clueLockInTimerRef.current);
+      window.clearTimeout(readyBtnPulseTimerRef.current);
+      window.clearTimeout(nextKeywordPulseTimerRef.current);
+      enteringPlayerTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      enteringPlayerTimersRef.current.clear();
     };
   }, []);
 
@@ -1458,6 +1551,7 @@ export default function GameRoom() {
     const optimistic = [...submittedClues, newClueEntry];
     setSubmittedClues(optimistic);
     setMyClueInput('');
+    playClueLockIn(CLIENT_ID);
 
     try {
       const { ok, error, clues, aborted } = await casUpdateSubmittedClues(
@@ -1643,6 +1737,7 @@ export default function GameRoom() {
     const expectedText = String(keywordText(currentWord) ?? '').trim();
     if (!expectedText) return;
 
+    playReadyBtnPulse();
     await measureServerTimeOffset();
     const baseWord =
       typeof currentWord === 'object' && currentWord
@@ -1780,6 +1875,7 @@ export default function GameRoom() {
         gameStatus === 'guesser_turn' && Boolean(submittedGuess) && roundWon;
       if (!guesserMayAdvanceOnLoss && !guesserMayAdvanceOnVictory) return;
     }
+    playNextKeywordPulse();
     advancingRoundRef.current = true;
 
     const playedText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
@@ -2072,6 +2168,14 @@ export default function GameRoom() {
   const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
   const keywordClass = 'text-2xl font-extrabold text-amber-500';
+  const isExactCorrectWin =
+    Boolean(roundWon) &&
+    Boolean(submittedGuess) &&
+    String(submittedGuess).toLowerCase() === String(keyWordText ?? '').toLowerCase();
+  const celebrateClass = isExactCorrectWin ? ' exact-correct-celebrate' : '';
+  const nextKeywordBtnClass = `px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2${
+    nextKeywordPulse ? ' btn-success-pulse' : ''
+  }`;
   const pastKeywords = (Array.isArray(playedKeywords) ? playedKeywords : []).filter(
     (item) => item && typeof item.text === 'string' && item.text.trim()
   );
@@ -2161,7 +2265,7 @@ export default function GameRoom() {
                 <button
                   type="button"
                   onClick={handleNextWord}
-                  className="mt-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
+                  className={`mt-2 ${nextKeywordBtnClass}`}
                 >
                   <span>NEXT KEYWORD</span>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -2309,12 +2413,12 @@ export default function GameRoom() {
                   {roundWon ? (
                     <div className="flex flex-col items-center gap-4 bg-emerald-500/10 border border-emerald-500/40 p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in">
                       <span className="text-5xl">🎉</span>
-                      <h2 className="text-3xl font-black text-emerald-400 tracking-wider">
+                      <h2 className={`text-3xl font-black text-emerald-400 tracking-wider${celebrateClass}`}>
                         {currentWinPhrase()}
                       </h2>
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
                         <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
-                        <p className={keywordClass}>
+                        <p className={`${keywordClass}${celebrateClass}`}>
                           {keyWordText}
                         </p>
                       </div>
@@ -2331,7 +2435,7 @@ export default function GameRoom() {
                       <button
                         type="button"
                         onClick={handleNextWord}
-                        className="mt-4 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
+                        className={`mt-4 ${nextKeywordBtnClass}`}
                       >
                         <span>NEXT KEYWORD</span>
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -2377,7 +2481,7 @@ export default function GameRoom() {
 
                           <button
                             onClick={handleNextWord}
-                            className="flex-1 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center justify-center gap-2"
+                            className={`flex-1 ${nextKeywordBtnClass} justify-center`}
                           >
                             <span>NEXT KEYWORD</span>
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
@@ -2454,7 +2558,10 @@ export default function GameRoom() {
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
                   {/* Masked keyword card — same chrome as clue givers; never reveal the word or submitter */}
-                  <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
+                  <div
+                    key={`kw-${currentWordKey}`}
+                    className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700 round-enter-keyword"
+                  >
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
                       Keyword
                     </p>
@@ -2463,19 +2570,24 @@ export default function GameRoom() {
                     </p>
                   </div>
                   <ClueCardsGrid
+                    key={`clues-${currentWordKey}`}
                     clues={clueGivingDisplayClues}
                     getPlayerName={getPlayerName}
                     clueWordClass={clueWordClass}
                     waitingDisplay
                     onBonk={handleBonkClueGiver}
                     bonkingPlayerKey={clueCardBonkingKey}
+                    staggerEnter
                   />
                 </div>
               ) : (
                 /* CLUE GIVER VIEW */
                 <div className="flex flex-col gap-6">
                   {/* Chosen Word Banner — skip hover/tap only during clue-giving (not check-clues) */}
-                  <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
+                  <div
+                    key={`kw-${currentWordKey}`}
+                    className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700 round-enter-keyword"
+                  >
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
                       Keyword
                     </p>
@@ -2528,6 +2640,7 @@ export default function GameRoom() {
                   {/* Waiting clue cards — own empty = inline entry; others bonk; own submitted = take-back */}
                   {!allCluesSubmitted && (
                     <ClueCardsGrid
+                      key={`clues-${currentWordKey}`}
                       clues={clueGivingDisplayClues}
                       getPlayerName={getPlayerName}
                       clueWordClass={clueWordClass}
@@ -2548,6 +2661,8 @@ export default function GameRoom() {
                       onClueDraftSubmit={!hasSubmittedMyClue ? handleGiveClue : null}
                       onBonk={handleBonkClueGiver}
                       bonkingPlayerKey={clueCardBonkingKey}
+                      lockInPlayerKey={clueLockInKey}
+                      staggerEnter
                     />
                   )}
 
@@ -2580,7 +2695,9 @@ export default function GameRoom() {
                           onClick={handleConfirmCluesReady}
                           disabled={readyDelaySeconds > 0}
                           aria-busy={readyDelaySeconds > 0}
-                          className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm select-none"
+                          className={`px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm select-none${
+                            readyBtnPulse ? ' btn-success-pulse' : ''
+                          }`}
                         >
                           {readyDelaySeconds > 0
                             ? `READY (${readyDelaySeconds})`
@@ -2672,7 +2789,7 @@ export default function GameRoom() {
             </div>
 
             <div className="flex flex-col gap-2.5">
-              {onlinePlayers.map((playerObj, idx) => {
+              {onlinePlayers.map((playerObj) => {
                 const isMe = playerObj.key === CLIENT_ID;
                 const isGuesserPlayer = playerObj.key === currentGuesserId;
                 const stats = playerStats[playerObj.key] || emptyPlayerStat();
@@ -2684,9 +2801,13 @@ export default function GameRoom() {
                   stats.correctGuesses,
                   stats.guessesMade
                 );
+                const isEntering = enteringPlayerKeys.has(playerObj.key);
 
                 return (
-                  <div key={idx} className="flex flex-col">
+                  <div
+                    key={playerObj.key}
+                    className={`flex flex-col${isEntering ? ' player-row-enter' : ''}`}
+                  >
                     {isMe && isEditingName ? (
                       <input
                         ref={editInputRef}

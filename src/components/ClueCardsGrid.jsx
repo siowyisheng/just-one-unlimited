@@ -25,6 +25,8 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * Submitted cards (masked or own) do not bonk; own take-back stays take-back.
  * The clue giver's own empty card is inline entry (not bonk).
  * Pass `bonkingPlayerKey` to play the shared rotating card-shake animation.
+ * Pass `lockInPlayerKey` for a brief local "locks in" scale on submit.
+ * Pass `staggerEnter` to fade/slide cards in with a light stagger on round start.
  */
 export default function ClueCardsGrid({
   clues,
@@ -51,6 +53,10 @@ export default function ClueCardsGrid({
   onBonk = null,
   /** Player key whose CLUE card is currently playing the bonk shake. */
   bonkingPlayerKey = null,
+  /** Player key whose card should play the brief submit lock-in scale. */
+  lockInPlayerKey = null,
+  /** Fade/slide cards in with ~40ms stagger (round start / phase enter). */
+  staggerEnter = false,
 }) {
   const ownEntryInputRef = useRef(null);
 
@@ -120,6 +126,12 @@ export default function ClueCardsGrid({
           Boolean(c?.playerKey) &&
           c.playerKey === bonkingPlayerKey;
 
+        const isLockingIn =
+          Boolean(lockInPlayerKey) &&
+          Boolean(c?.playerKey) &&
+          c.playerKey === lockInPlayerKey &&
+          hasClueText;
+
         // Prefer row hideStatus (waiting/masked path from App) so ****** cards
         // can mirror synced hides without using the placeholder as the clue.
         const hideFromRow = c?.hideStatus === 'hidden' || c?.hideStatus === 'duplicate';
@@ -167,9 +179,14 @@ export default function ClueCardsGrid({
                     ? `${submittedChrome} cursor-pointer hover:border-slate-500`
                     : `${submittedChrome} ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
-        const cardClass = `p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${baseChrome}${
+        const enterClass = staggerEnter ? ' round-enter-card' : '';
+        const cardClass = `clue-card-chrome p-3.5 rounded-xl text-center border select-none relative ${baseChrome}${
           isCardBonking ? ' clue-card-bonk-shake' : ''
-        }`;
+        }${isLockingIn ? ' clue-lock-in' : ''}${enterClass}`;
+
+        const enterStyle = staggerEnter
+          ? { '--enter-delay': `${idx * 40}ms` }
+          : undefined;
 
         const byline = (
           <p className="text-xs italic text-slate-400 mt-1">
@@ -186,6 +203,7 @@ export default function ClueCardsGrid({
               title="Enter your clue"
               onClick={() => ownEntryInputRef.current?.focus()}
               className={`${cardClass} w-full`}
+              style={enterStyle}
             >
               <input
                 ref={ownEntryInputRef}
@@ -237,7 +255,7 @@ export default function ClueCardsGrid({
             {statusBadge}
 
             <p
-              className={`${clueWordClass} ${showHiddenVisual ? 'line-through opacity-40' : ''} ${
+              className={`${clueWordClass} clue-word-hideable ${showHiddenVisual ? 'is-hidden' : ''} ${
                 showTyping || (waitingDisplay && !hasClueText)
                   ? 'min-h-[2rem] flex items-center justify-center'
                   : ''
@@ -277,6 +295,7 @@ export default function ClueCardsGrid({
               aria-label="Change clue"
               title="Change clue"
               className={`${cardClass} w-full`}
+              style={enterStyle}
             >
               {cardBody}
             </button>
@@ -292,6 +311,7 @@ export default function ClueCardsGrid({
               aria-label={`Bonk ${getPlayerName(c.playerKey, c.username)}`}
               title="Bonk"
               className={`${cardClass} w-full`}
+              style={enterStyle}
             >
               {cardBody}
             </button>
@@ -303,6 +323,7 @@ export default function ClueCardsGrid({
             key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
             onClick={canToggle ? () => onToggleClue(c.clue) : undefined}
             className={cardClass}
+            style={enterStyle}
           >
             {cardBody}
           </div>
