@@ -1610,10 +1610,10 @@ export default function GameRoom() {
     gameStatus === 'in_round';
 
   // Clue-giving waiting cards: one slot per clue giver. Mask others' clues
-  // in the UI only (guesser + peers see — / ******; own card shows real text).
+  // in the UI only (guesser + peers see blank / ******; own card shows real text).
   // Roster is a union — presence alone can be empty/incomplete at paint time
   // (ClueCardsGrid returns null for []), which hid the whole grid.
-  const EMPTY_CLUE_PLACEHOLDER = '\u2014'; // em dash
+  const EMPTY_CLUE_PLACEHOLDER = ''; // blank until a clue is submitted
   const MASKED_CLUE_PLACEHOLDER = '******';
   const clueGiverRoster = (() => {
     const byKey = new Map();
@@ -1635,6 +1635,7 @@ export default function GameRoom() {
   const clueGivingDisplayClues = clueGiverRoster.map((p) => {
     const submitted = submittedClues.find((c) => c.playerKey === p.key);
     const isOwn = p.key === CLIENT_ID && !isGuesser;
+    const playerOnline = onlinePlayers.find((op) => op.key === p.key);
     let clue;
     if (!submitted?.clue) {
       clue = EMPTY_CLUE_PLACEHOLDER;
@@ -1647,6 +1648,8 @@ export default function GameRoom() {
       playerKey: p.key,
       username: p.username,
       clue,
+      // Clue-phase typing shows on the CLUE card, not the PLAYERS row.
+      isTyping: Boolean(playerOnline?.isTyping) && !submitted?.clue,
     };
   });
 
@@ -2330,7 +2333,9 @@ export default function GameRoom() {
                         </span>
 
                         <span className="flex items-center gap-1.5 shrink-0">
-                          {playerObj.isTyping && (
+                          {/* Setup keyword typing stays on PLAYERS; clue typing lives on CLUE cards. */}
+                          {playerObj.isTyping &&
+                            (gameStatus === 'lobby' || gameStatus === 'game_over') && (
                             <span
                               className="typing-indicator"
                               aria-label="typing"

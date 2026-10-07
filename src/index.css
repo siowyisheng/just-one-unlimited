@@ -129,7 +129,7 @@ code {
   background: var(--code-bg);
 }
 
-/* Player-row typing indicator (Supabase presence) */
+/* Typing indicator (setup: PLAYERS row; clue-giving: CLUE card text area) */
 .typing-indicator {
   display: inline-flex;
   align-items: center;
