@@ -9,7 +9,6 @@ export default function WordSubmissionWidget({
     getPlayerName,
     currentUserId,
     keywordError = "",
-    title = "Shared Keyword List",
     placeholder = "Enter a noun or name",
 }) {
     return (
@@ -30,7 +29,7 @@ export default function WordSubmissionWidget({
                         type="submit"
                         className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
                     >
-                        ADD KEYWORD
+                        ADD
                     </button>
                 </form>
                 {keywordError ? (
@@ -42,11 +41,8 @@ export default function WordSubmissionWidget({
 
             {/* Shared Word List Display */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 min-h-[160px]">
-                <h3 className="text-sm font-semibold mb-3 text-slate-300 flex justify-between items-center">
-                    <span>{title}</span>
-                    <span className="text-xs font-normal text-slate-400">
-                        {wordList.length} {wordList.length === 1 ? 'keyword' : 'keywords'} in pool
-                    </span>
+                <h3 className="text-sm font-semibold mb-3 text-slate-300">
+                    Keywords ({wordList.length})
                 </h3>
 
                 {wordList.length === 0 ? (
