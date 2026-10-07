@@ -1611,25 +1611,44 @@ export default function GameRoom() {
 
   // Clue-giving waiting cards: one slot per clue giver. Mask others' clues
   // in the UI only (guesser + peers see — / ******; own card shows real text).
-  const clueGivingDisplayClues = onlinePlayers
-    .filter((p) => p.key !== currentGuesserId)
-    .map((p) => {
-      const submitted = submittedClues.find((c) => c.playerKey === p.key);
-      const isOwn = p.key === CLIENT_ID && !isGuesser;
-      let clue;
-      if (!submitted?.clue) {
-        clue = '—';
-      } else if (isOwn) {
-        clue = submitted.clue;
-      } else {
-        clue = '******';
-      }
-      return {
-        playerKey: p.key,
-        username: p.username,
-        clue,
-      };
-    });
+  // Roster is a union — presence alone can be empty/incomplete at paint time
+  // (ClueCardsGrid returns null for []), which hid the whole grid.
+  const EMPTY_CLUE_PLACEHOLDER = '\u2014'; // em dash
+  const MASKED_CLUE_PLACEHOLDER = '******';
+  const clueGiverRoster = (() => {
+    const byKey = new Map();
+    const add = (key, username) => {
+      if (!key || key === currentGuesserId) return;
+      if (byKey.has(key)) return;
+      byKey.set(key, {
+        key,
+        username: username || getPlayerName(key, 'Anonymous'),
+      });
+    };
+    onlinePlayers.forEach((p) => add(p.key, p.username));
+    // Lobby start clicks persist into the round — useful when presence lags.
+    startRequesters.forEach((key) => add(key));
+    submittedClues.forEach((c) => add(c?.playerKey, c?.username));
+    if (!isGuesser) add(CLIENT_ID, myUsername);
+    return Array.from(byKey.values());
+  })();
+  const clueGivingDisplayClues = clueGiverRoster.map((p) => {
+    const submitted = submittedClues.find((c) => c.playerKey === p.key);
+    const isOwn = p.key === CLIENT_ID && !isGuesser;
+    let clue;
+    if (!submitted?.clue) {
+      clue = EMPTY_CLUE_PLACEHOLDER;
+    } else if (isOwn) {
+      clue = submitted.clue;
+    } else {
+      clue = MASKED_CLUE_PLACEHOLDER;
+    }
+    return {
+      playerKey: p.key,
+      username: p.username,
+      clue,
+    };
+  });
 
   // Client-local delay before READY FOR GUESSER: starts when review UI appears
   // (all clues in), not from earlier page load / clue-giving wait.

@@ -1,12 +1,15 @@
 import React from 'react';
 
+const EMPTY_CLUE_PLACEHOLDER = '\u2014'; // em dash
+
 /**
  * Shared clue cards grid used by the filter review phase, end-of-round
  * results (victory / loss), and the clue-giving waiting view.
  * Matches filter styling for hidden & duplicate clues.
  *
  * Set `waitingDisplay` during clue-giving so placeholder / masked text
- * (`—`, `******`) is not treated as duplicates or hideable.
+ * (`—`, `******`) is not treated as duplicates or hideable, and so slots
+ * still render when the clue string is empty.
  */
 export default function ClueCardsGrid({
   clues,
@@ -31,7 +34,16 @@ export default function ClueCardsGrid({
   return (
     <div className="grid grid-cols-2 gap-3 w-full">
       {clues.map((c, idx) => {
-        if (!c?.clue) return null;
+        // Filter/results: skip rows with no clue text.
+        // Waiting: always paint a slot (dash if empty) so the grid never
+        // collapses when presence/submit state is still catching up.
+        const displayClue = c?.clue
+          ? c.clue
+          : waitingDisplay
+            ? EMPTY_CLUE_PLACEHOLDER
+            : null;
+        if (!displayClue) return null;
+
         const isTakeBackCard =
           canTakeBack && c.playerKey && c.playerKey === takeBackPlayerKey;
 
@@ -40,7 +52,7 @@ export default function ClueCardsGrid({
           typeof isExactDuplicateClue === 'function' &&
           isExactDuplicateClue(c.clue, clues);
         const norm =
-          !waitingDisplay && typeof normalizeClue === 'function'
+          !waitingDisplay && typeof normalizeClue === 'function' && c?.clue
             ? normalizeClue(c.clue)
             : '';
         const isManuallyHidden =
@@ -70,7 +82,7 @@ export default function ClueCardsGrid({
             ) : null}
 
             <p className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''}`}>
-              {c.clue}
+              {displayClue}
             </p>
             <p className="text-xs italic text-slate-400 mt-1">
               by {getPlayerName(c.playerKey, c.username)}
@@ -81,7 +93,7 @@ export default function ClueCardsGrid({
         if (isTakeBackCard) {
           return (
             <button
-              key={`${c.playerKey || 'p'}-${idx}-${c.clue}`}
+              key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
               type="button"
               onClick={onTakeBack}
               aria-label="Change clue"
@@ -95,7 +107,7 @@ export default function ClueCardsGrid({
 
         return (
           <div
-            key={`${c.playerKey || 'p'}-${idx}-${c.clue}`}
+            key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
             onClick={canToggle ? () => onToggleClue(c.clue) : undefined}
             className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${baseChrome}`}
           >
