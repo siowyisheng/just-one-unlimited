@@ -297,7 +297,8 @@ const statPercent = (numerator, denominator) => {
   return Math.round((num / den) * 100);
 };
 
-/** Small % with hover title + tap-to-reveal label (mobile). */
+/** Small % with hover title + tap-to-reveal label (mobile).
+ *  Omit entirely when there is no denominator yet (value null). */
 function PlayerStatPct({ value, label, colorClass }) {
   const [showTip, setShowTip] = useState(false);
   const tipTimerRef = useRef(null);
@@ -305,6 +306,8 @@ function PlayerStatPct({ value, label, colorClass }) {
   useEffect(() => () => {
     if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
   }, []);
+
+  if (value == null) return null;
 
   const revealTip = (e) => {
     e.preventDefault();
@@ -314,7 +317,7 @@ function PlayerStatPct({ value, label, colorClass }) {
     tipTimerRef.current = window.setTimeout(() => setShowTip(false), 1600);
   };
 
-  const display = value == null ? '—' : `${value}%`;
+  const display = `${value}%`;
 
   return (
     <span className="relative inline-flex">
@@ -2711,18 +2714,20 @@ export default function GameRoom() {
                           >
                             {playerObj.username} {isMe && '(You)'}
                           </span>
-                          <span className="flex items-center gap-1 shrink-0">
-                            <PlayerStatPct
-                              value={clueSuccessPct}
-                              label="Successful clues given"
-                              colorClass="text-sky-400"
-                            />
-                            <PlayerStatPct
-                              value={guessSuccessPct}
-                              label="Correct guesses"
-                              colorClass="text-amber-500"
-                            />
-                          </span>
+                          {(clueSuccessPct != null || guessSuccessPct != null) && (
+                            <span className="flex items-center gap-1 shrink-0">
+                              <PlayerStatPct
+                                value={clueSuccessPct}
+                                label="Successful clues given"
+                                colorClass="text-sky-400"
+                              />
+                              <PlayerStatPct
+                                value={guessSuccessPct}
+                                label="Correct guesses"
+                                colorClass="text-amber-500"
+                              />
+                            </span>
+                          )}
                         </span>
 
                         <span className="flex items-center gap-1.5 shrink-0">
