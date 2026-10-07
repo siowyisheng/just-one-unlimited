@@ -10,6 +10,7 @@ import WordSubmissionWidget from './components/WordSubmissionWidget';
 import ClueCardsGrid, {
   MASKED_CLUE_PLACEHOLDER,
 } from './components/ClueCardsGrid';
+import ClueRulesExpander from './components/ClueRulesExpander';
 import FeedbackWidget from './components/FeedbackWidget';
 import { STOCK_KEYWORDS } from './data/stockKeywords';
 
@@ -2287,54 +2288,59 @@ export default function GameRoom() {
                 /* CLUE GIVER VIEW */
                 <div className="flex flex-col gap-6">
                   {/* Chosen Word Banner — skip hover/tap only during clue-giving (not check-clues) */}
-                  <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
-                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
-                      Keyword
-                    </p>
-                    {!allCluesSubmitted ? (
-                      <div
-                        ref={skipKeywordAnchorRef}
-                        className="relative inline-flex flex-col items-center"
-                        onMouseEnter={() => setSkipKeywordAffordanceOpen(true)}
-                        onMouseLeave={() => setSkipKeywordAffordanceOpen(false)}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSkipKeywordAffordanceOpen(true)}
-                          className={`${keywordClass} cursor-pointer touch-manipulation transition-colors hover:text-amber-400 focus:outline-none focus-visible:text-amber-400`}
-                          aria-expanded={skipKeywordAffordanceOpen}
-                          aria-controls="skip-keyword-affordance"
-                          aria-label={`Keyword ${keyWordText}. Show skip option.`}
-                        >
-                          {keyWordText}
-                        </button>
+                  <div className="flex flex-col gap-3">
+                    <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
+                      <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
+                        Keyword
+                      </p>
+                      {!allCluesSubmitted ? (
                         <div
-                          id="skip-keyword-affordance"
-                          className={`absolute left-1/2 top-full z-10 -translate-x-1/2 pt-1.5 transition-all duration-150 ${
-                            skipKeywordAffordanceOpen
-                              ? 'pointer-events-auto translate-y-0 opacity-100'
-                              : 'pointer-events-none -translate-y-1 opacity-0'
-                          }`}
+                          ref={skipKeywordAnchorRef}
+                          className="relative inline-flex flex-col items-center"
+                          onMouseEnter={() => setSkipKeywordAffordanceOpen(true)}
+                          onMouseLeave={() => setSkipKeywordAffordanceOpen(false)}
                         >
                           <button
                             type="button"
-                            onClick={handleSkipKeyword}
-                            className="whitespace-nowrap rounded-md border border-slate-700/70 bg-slate-950/95 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-500 shadow-lg backdrop-blur-sm transition-colors hover:border-slate-600 hover:text-slate-200 cursor-pointer"
+                            onClick={() => setSkipKeywordAffordanceOpen(true)}
+                            className={`${keywordClass} cursor-pointer touch-manipulation transition-colors hover:text-amber-400 focus:outline-none focus-visible:text-amber-400`}
+                            aria-expanded={skipKeywordAffordanceOpen}
+                            aria-controls="skip-keyword-affordance"
+                            aria-label={`Keyword ${keyWordText}. Show skip option.`}
                           >
-                            SKIP KEYWORD
+                            {keyWordText}
                           </button>
+                          <div
+                            id="skip-keyword-affordance"
+                            className={`absolute left-1/2 top-full z-10 -translate-x-1/2 pt-1.5 transition-all duration-150 ${
+                              skipKeywordAffordanceOpen
+                                ? 'pointer-events-auto translate-y-0 opacity-100'
+                                : 'pointer-events-none -translate-y-1 opacity-0'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={handleSkipKeyword}
+                              className="whitespace-nowrap rounded-md border border-slate-700/70 bg-slate-950/95 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-500 shadow-lg backdrop-blur-sm transition-colors hover:border-slate-600 hover:text-slate-200 cursor-pointer"
+                            >
+                              SKIP KEYWORD
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <p className={keywordClass}>{keyWordText}</p>
-                    )}
-                    {currentWord && typeof currentWord === 'object' && (
-                      <p className="text-xs italic text-slate-400 mt-2">
-                        {currentWord.masked
-                          ? 'From stock words'
-                          : `Submitted by ${getPlayerName(currentWord.authorId, currentWord.authorName)}`}
-                      </p>
-                    )}
+                      ) : (
+                        <p className={keywordClass}>{keyWordText}</p>
+                      )}
+                      {currentWord && typeof currentWord === 'object' && (
+                        <p className="text-xs italic text-slate-400 mt-2">
+                          {currentWord.masked
+                            ? 'From stock words'
+                            : `Submitted by ${getPlayerName(currentWord.authorId, currentWord.authorName)}`}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Clue rules: clue givers only, Give a Clue phase */}
+                    {!allCluesSubmitted && <ClueRulesExpander />}
                   </div>
 
                   {/* Waiting clue cards — own empty = inline entry; others bonk; own submitted = take-back */}
@@ -2380,7 +2386,7 @@ export default function GameRoom() {
 
                       <div className="flex flex-col items-center gap-3 text-center">
                         <h3 className="text-sm text-slate-400">
-                          Hide repeated or disallowed clues
+                          Hide repeated or invalid clues
                         </h3>
 
                         {/* READY — muted + countdown text for READY_FOR_GUESSER_DELAY_SECONDS */}
