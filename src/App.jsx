@@ -2087,18 +2087,17 @@ export default function GameRoom() {
 
                   {canTakeBackClue && (
                     <div className="flex flex-col items-center gap-4">
-                      <div className="w-full text-center bg-slate-900/60 p-5 rounded-xl border border-slate-700">
-                        <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
-                          Your clue
-                        </p>
-                        <p className={clueWordClass}>{mySubmittedClue.clue}</p>
-                      </div>
                       <button
                         type="button"
                         onClick={handleTakeBackClue}
-                        className="self-center px-4 py-2 text-sm font-semibold text-slate-400 hover:text-amber-300 bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors cursor-pointer uppercase tracking-wide"
+                        aria-label="Change clue"
+                        title="Change clue"
+                        className="w-full text-center bg-slate-900/60 p-5 rounded-xl border border-slate-600/60 hover:border-rose-400/70 cursor-pointer transition-colors select-none"
                       >
-                        Change clue
+                        <span className="block text-xs text-slate-400 uppercase tracking-widest mb-1">
+                          Your clue
+                        </span>
+                        <span className={`block ${clueWordClass}`}>{mySubmittedClue.clue}</span>
                       </button>
                       <p className={waitingLineClass}>
                         Waiting for other clue givers...
