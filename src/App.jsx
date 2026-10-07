@@ -2233,8 +2233,8 @@ export default function GameRoom() {
                       />
 
                       <div className="flex flex-col items-center gap-3 text-center">
-                        <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                          Hide Repeated or Disallowed Clues
+                        <h3 className="text-sm text-slate-400">
+                          Hide repeated or disallowed clues
                         </h3>
 
                         {/* READY — visual cooldown overlay for READY_FOR_GUESSER_DELAY_SECONDS */}
