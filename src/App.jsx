@@ -11,6 +11,7 @@ import ClueCardsGrid, {
   MASKED_CLUE_PLACEHOLDER,
 } from './components/ClueCardsGrid';
 import FeedbackWidget from './components/FeedbackWidget';
+import { STOCK_KEYWORDS } from './data/stockKeywords';
 
 /** Mid-round sibling card: keyword entry below the phase card (no status ping). */
 function AddMoreKeywordsCard(props) {
@@ -1079,34 +1080,14 @@ export default function GameRoom() {
     else clearTyping();
   };
 
-  const handleAddWord = async (e) => {
-    e.preventDefault();
-    const trimmed = normalizeKeyword(newWord);
-    if (!trimmed || !sessionId) return;
-
-    const alreadyInList = wordList.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
-    const alreadyPlayed = playedKeywords.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
-    if (alreadyInList) {
-      setKeywordError('This keyword is already in the Shared Keyword List.');
-      return;
-    }
-    if (alreadyPlayed) {
-      setKeywordError('This keyword is already a past keyword.');
-      return;
-    }
-    setKeywordError('');
-    clearTyping();
-
-    // Store word as an object with author details
-    const newEntry = {
-      text: trimmed,
-      authorId: CLIENT_ID,
-      authorName: myUsername,
-    };
+  const persistNewKeyword = async (newEntry) => {
+    if (!sessionId) return;
 
     const updatedWords = [...wordList, newEntry];
     setWordList(updatedWords);
     setNewWord('');
+    setKeywordError('');
+    clearTyping();
 
     const { error } = await supabase
       .from('game_sessions')
@@ -1122,6 +1103,51 @@ export default function GameRoom() {
     if (gameStatus === 'game_over' && roundCanStart(updatedWords, onlinePlayers)) {
       await startNextRound(updatedWords, onlinePlayers);
     }
+  };
+
+  const handleAddWord = async (e) => {
+    e.preventDefault();
+    const trimmed = normalizeKeyword(newWord);
+    if (!trimmed || !sessionId) return;
+
+    const alreadyInList = wordList.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    const alreadyPlayed = playedKeywords.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    if (alreadyInList) {
+      setKeywordError('This keyword is already in the Shared Keyword List.');
+      return;
+    }
+    if (alreadyPlayed) {
+      setKeywordError('This keyword is already a past keyword.');
+      return;
+    }
+
+    // Store word as an object with author details
+    await persistNewKeyword({
+      text: trimmed,
+      authorId: CLIENT_ID,
+      authorName: myUsername,
+    });
+  };
+
+  // Pick a stock noun not already in the pool (or past keywords). Pool chips
+  // store masked:true so everyone sees "?" until the word is drawn for a round.
+  const handleAddRandomWord = async () => {
+    if (!sessionId) return;
+
+    const used = new Set([
+      ...wordList.map((item) => normalizeKeyword(keywordText(item))),
+      ...playedKeywords.map((item) => normalizeKeyword(keywordText(item))),
+    ]);
+    const available = STOCK_KEYWORDS.filter((word) => !used.has(normalizeKeyword(word)));
+    if (available.length === 0) return;
+
+    const picked = available[Math.floor(Math.random() * available.length)];
+    await persistNewKeyword({
+      text: normalizeKeyword(picked),
+      authorId: CLIENT_ID,
+      authorName: myUsername,
+      masked: true,
+    });
   };
 
   const handleRemoveWord = async (index) => {
@@ -2097,6 +2123,7 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
+                onAddRandomWord={handleAddRandomWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
@@ -2123,6 +2150,7 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
+                onAddRandomWord={handleAddRandomWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
@@ -2291,6 +2319,7 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
+                onAddRandomWord={handleAddRandomWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
@@ -2342,6 +2371,7 @@ export default function GameRoom() {
                 newWord={newWord}
                 setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
+                onAddRandomWord={handleAddRandomWord}
                 onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
