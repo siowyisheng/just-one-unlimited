@@ -1609,6 +1609,28 @@ export default function GameRoom() {
     !allCluesSubmitted &&
     gameStatus === 'in_round';
 
+  // Clue-giving waiting cards: one slot per clue giver. Mask others' clues
+  // in the UI only (guesser + peers see — / ******; own card shows real text).
+  const clueGivingDisplayClues = onlinePlayers
+    .filter((p) => p.key !== currentGuesserId)
+    .map((p) => {
+      const submitted = submittedClues.find((c) => c.playerKey === p.key);
+      const isOwn = p.key === CLIENT_ID && !isGuesser;
+      let clue;
+      if (!submitted?.clue) {
+        clue = '—';
+      } else if (isOwn) {
+        clue = submitted.clue;
+      } else {
+        clue = '******';
+      }
+      return {
+        playerKey: p.key,
+        username: p.username,
+        clue,
+      };
+    });
+
   // Client-local delay before READY FOR GUESSER: starts when review UI appears
   // (all clues in), not from earlier page load / clue-giving wait.
   useEffect(() => {
@@ -2027,11 +2049,15 @@ export default function GameRoom() {
                       ******
                     </p>
                   </div>
-                  <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
-                    <p className={waitingLineClass}>
-                      Waiting for clue givers...
-                    </p>
-                  </div>
+                  <ClueCardsGrid
+                    clues={clueGivingDisplayClues}
+                    getPlayerName={getPlayerName}
+                    clueWordClass={clueWordClass}
+                    waitingDisplay
+                  />
+                  <p className={waitingLineClass}>
+                    Waiting for clue givers...
+                  </p>
                 </div>
               ) : (
                 /* CLUE GIVER VIEW */
@@ -2081,7 +2107,19 @@ export default function GameRoom() {
                     )}
                   </div>
 
-                  {/* Clue Input Form or Waiting Text */}
+                  {/* Waiting clue cards — same chrome as filter/guess; display-only except own take-back */}
+                  {!allCluesSubmitted && (
+                    <ClueCardsGrid
+                      clues={clueGivingDisplayClues}
+                      getPlayerName={getPlayerName}
+                      clueWordClass={clueWordClass}
+                      waitingDisplay
+                      takeBackPlayerKey={canTakeBackClue ? CLIENT_ID : null}
+                      onTakeBack={canTakeBackClue ? handleTakeBackClue : null}
+                    />
+                  )}
+
+                  {/* Clue Input Form (until this player has submitted) */}
                   {!hasSubmittedMyClue && (
                     <form onSubmit={handleGiveClue} className="flex w-full">
                       <input
@@ -2106,23 +2144,9 @@ export default function GameRoom() {
                   )}
 
                   {canTakeBackClue && (
-                    <div className="flex flex-col items-center gap-4">
-                      <button
-                        type="button"
-                        onClick={handleTakeBackClue}
-                        aria-label="Change clue"
-                        title="Change clue"
-                        className="w-full text-center bg-slate-900/60 p-5 rounded-xl border border-slate-600/60 hover:border-rose-400/70 cursor-pointer transition-colors select-none"
-                      >
-                        <span className="block text-xs text-slate-400 uppercase tracking-widest mb-1">
-                          Your clue
-                        </span>
-                        <span className={`block ${clueWordClass}`}>{mySubmittedClue.clue}</span>
-                      </button>
-                      <p className={waitingLineClass}>
-                        Waiting for other clue givers...
-                      </p>
-                    </div>
+                    <p className={waitingLineClass}>
+                      Waiting for other clue givers...
+                    </p>
                   )}
 
                   {/* Shared Clues & Visibility Filter View */}
