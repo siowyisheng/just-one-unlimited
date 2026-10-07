@@ -12,6 +12,7 @@ import ClueCardsGrid, {
 } from './components/ClueCardsGrid';
 import ClueRulesExpander from './components/ClueRulesExpander';
 import FeedbackWidget from './components/FeedbackWidget';
+import VersionChangelogWidget from './components/VersionChangelogWidget';
 import { STOCK_KEYWORDS } from './data/stockKeywords';
 
 /** Mid-round sibling card: keyword entry below the phase card (no status ping). */
@@ -2937,6 +2938,7 @@ export default function GameRoom() {
       </a>
 
       <FeedbackWidget />
+      <VersionChangelogWidget />
 
       {showGiveUpConfirm && (
         <div
