@@ -1778,7 +1778,6 @@ export default function GameRoom() {
   const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
   const clueWordClass = 'text-2xl font-extrabold text-sky-400';
   const keywordClass = 'text-2xl font-extrabold text-amber-500';
-  const waitingLineClass = 'text-center text-slate-100 font-medium py-3 italic animate-pulse';
   const pastKeywords = (Array.isArray(playedKeywords) ? playedKeywords : []).filter(
     (item) => item && typeof item.text === 'string' && item.text.trim()
   );
@@ -2138,9 +2137,6 @@ export default function GameRoom() {
                     onBonk={handleBonkClueGiver}
                     bonkingPlayerKey={clueCardBonkingKey}
                   />
-                  <p className={waitingLineClass}>
-                    Waiting for clue givers...
-                  </p>
                 </div>
               ) : (
                 /* CLUE GIVER VIEW */
@@ -2214,12 +2210,6 @@ export default function GameRoom() {
                       onBonk={handleBonkClueGiver}
                       bonkingPlayerKey={clueCardBonkingKey}
                     />
-                  )}
-
-                  {canTakeBackClue && (
-                    <p className={waitingLineClass}>
-                      Waiting for other clue givers...
-                    </p>
                   )}
 
                   {/* Shared Clues & Visibility Filter View */}
