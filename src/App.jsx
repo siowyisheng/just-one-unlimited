@@ -2281,7 +2281,9 @@ export default function GameRoom() {
                     )}
                     {currentWord && typeof currentWord === 'object' && (
                       <p className="text-xs italic text-slate-400 mt-2">
-                        Submitted by {getPlayerName(currentWord.authorId, currentWord.authorName)}
+                        {currentWord.masked
+                          ? 'From stock words'
+                          : `Submitted by ${getPlayerName(currentWord.authorId, currentWord.authorName)}`}
                       </p>
                     )}
                   </div>
