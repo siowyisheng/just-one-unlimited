@@ -7,7 +7,9 @@ import {
 } from './supabaseClient';
 
 import WordSubmissionWidget from './components/WordSubmissionWidget';
-import ClueCardsGrid from './components/ClueCardsGrid';
+import ClueCardsGrid, {
+  MASKED_CLUE_PLACEHOLDER,
+} from './components/ClueCardsGrid';
 import FeedbackWidget from './components/FeedbackWidget';
 
 /** Mid-round sibling card: keyword entry below the phase card (no status ping). */
@@ -1673,7 +1675,6 @@ export default function GameRoom() {
   // Roster is a union — presence alone can be empty/incomplete at paint time
   // (ClueCardsGrid returns null for []), which hid the whole grid.
   const EMPTY_CLUE_PLACEHOLDER = ''; // blank until a clue is submitted
-  const MASKED_CLUE_PLACEHOLDER = '******';
   const clueGiverRoster = (() => {
     const byKey = new Map();
     const add = (key, username) => {
