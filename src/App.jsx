@@ -247,6 +247,9 @@ export default function GameRoom() {
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
   const [showGiveUpConfirm, setShowGiveUpConfirm] = useState(false);
+  // Hover (desktop) / tap (mobile) reveal for the quiet give-up affordance.
+  const [giveUpMenuOpen, setGiveUpMenuOpen] = useState(false);
+  const giveUpMenuAnchorRef = useRef(null);
   const winPhraseRef = useRef(null);
   // True after the victory sound has played for the current win. Later saves
   // that still carry the old win flag must not play it again.
@@ -620,6 +623,19 @@ export default function GameRoom() {
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [skipKeywordAffordanceOpen]);
+
+  // Dismiss give-up More menu when tapping outside the control.
+  useEffect(() => {
+    if (!giveUpMenuOpen) return;
+
+    const onPointerDown = (event) => {
+      if (giveUpMenuAnchorRef.current?.contains(event.target)) return;
+      setGiveUpMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [giveUpMenuOpen]);
 
   useEffect(() => {
     if (isEditingName && editInputRef.current) {
@@ -1888,6 +1904,7 @@ export default function GameRoom() {
   useEffect(() => {
     if (roundLost || gameStatus !== 'guesser_turn' || submittedGuess) {
       setShowGiveUpConfirm(false);
+      setGiveUpMenuOpen(false);
     }
   }, [roundLost, gameStatus, submittedGuess]);
 
@@ -2025,13 +2042,45 @@ export default function GameRoom() {
                           GUESS KEYWORD
                         </button>
                       </form>
-                      <button
-                        type="button"
-                        onClick={() => setShowGiveUpConfirm(true)}
-                        className="self-center px-4 py-2 text-sm font-semibold text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+                      <div
+                        ref={giveUpMenuAnchorRef}
+                        className="relative self-center"
+                        onMouseEnter={() => setGiveUpMenuOpen(true)}
+                        onMouseLeave={() => setGiveUpMenuOpen(false)}
                       >
-                        Give up
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setGiveUpMenuOpen((open) => !open)}
+                          aria-expanded={giveUpMenuOpen}
+                          aria-controls="give-up-menu"
+                          aria-haspopup="menu"
+                          aria-label="More options"
+                          className="px-2 py-1 text-sm font-semibold leading-none text-slate-500 hover:text-slate-300 transition-colors cursor-pointer touch-manipulation focus:outline-none focus-visible:text-slate-300"
+                        >
+                          ⋯
+                        </button>
+                        <div
+                          id="give-up-menu"
+                          role="menu"
+                          className={`absolute left-1/2 top-full z-10 -translate-x-1/2 pt-0.5 transition-all duration-150 ${
+                            giveUpMenuOpen
+                              ? 'pointer-events-auto translate-y-0 opacity-100'
+                              : 'pointer-events-none -translate-y-1 opacity-0'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setGiveUpMenuOpen(false);
+                              setShowGiveUpConfirm(true);
+                            }}
+                            className="whitespace-nowrap px-2 py-1 text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                          >
+                            Give up
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
 
