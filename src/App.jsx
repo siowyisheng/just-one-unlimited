@@ -243,15 +243,16 @@ const exactDuplicateClueSet = (clues) => {
 };
 
 // Fold one completed round into durable per-player counters (playerKey-keyed).
-// Clues count only once the round is retired (not mid-round). Guesses count only
-// when a guess was submitted; CLOSE ENOUGH counts as correct via roundWon.
+// Clues count only once the round is retired (not mid-round). Guesser turns
+// count every retired round for that guesser — submitted guess, CLOSE ENOUGH,
+// wrong guess, give-up (gaveUp), timeout (timedOut), or zero-visible-clue loss.
+// Skip-keyword does not retire via playedEntry, so it does not bump guess stats.
 const accumulateRoundPlayerStats = (
   prevStats,
   {
     clues = [],
     invalidClues = [],
     guesserId = null,
-    submittedGuess = null,
     roundWon = false,
   } = {}
 ) => {
@@ -280,7 +281,7 @@ const accumulateRoundPlayerStats = (
     });
   });
 
-  if (guesserId && submittedGuess != null && String(submittedGuess).trim() !== '') {
+  if (guesserId) {
     bump(guesserId, {
       guessesMade: 1,
       correctGuesses: roundWon ? 1 : 0,
@@ -290,6 +291,7 @@ const accumulateRoundPlayerStats = (
   return next;
 };
 
+// null = no denominator yet (hide); 0 = den≥1 and no successes (show "0%").
 const statPercent = (numerator, denominator) => {
   const den = Number(denominator) || 0;
   if (den <= 0) return null;
@@ -298,7 +300,7 @@ const statPercent = (numerator, denominator) => {
 };
 
 /** Small % with hover title + tap-to-reveal label (mobile).
- *  Omit entirely when there is no denominator yet (value null). */
+ *  Hide only when value is null (no denominator). value 0 renders as "0%". */
 function PlayerStatPct({ value, label, colorClass }) {
   const [showTip, setShowTip] = useState(false);
   const tipTimerRef = useRef(null);
@@ -307,7 +309,8 @@ function PlayerStatPct({ value, label, colorClass }) {
     if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
   }, []);
 
-  if (value == null) return null;
+  // Strict null: 0 is a real rate and must stay visible.
+  if (value === null || value === undefined) return null;
 
   const revealTip = (e) => {
     e.preventDefault();
@@ -1115,11 +1118,12 @@ export default function GameRoom() {
       );
       if (!alreadyLogged) {
         nextPlayed = [...existingPlayed, playedEntry];
+        // Guesser turn complete: submitted guess, CLOSE ENOUGH, wrong guess,
+        // give-up / timeout (current_word.gaveUp|timedOut), or zero-clue loss.
         nextPlayerStats = accumulateRoundPlayerStats(existingPlayerStats, {
           clues: sessionData?.submitted_clues || [],
           invalidClues: sessionData?.invalid_clues || [],
           guesserId: sessionData?.current_guesser_id || null,
-          submittedGuess: sessionData?.submitted_guess ?? null,
           roundWon: Boolean(sessionData?.round_won) || Boolean(playedEntry.correct),
         });
       }
