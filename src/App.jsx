@@ -2018,6 +2018,15 @@ export default function GameRoom() {
               {isGuesser ? (
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
+                  {/* Masked keyword card — same chrome as clue givers; never reveal the word or submitter */}
+                  <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
+                      Keyword
+                    </p>
+                    <p className={keywordClass} aria-label="Keyword hidden">
+                      ******
+                    </p>
+                  </div>
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
                     <p className={waitingLineClass}>
                       Waiting for clue givers...
