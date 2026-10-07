@@ -313,33 +313,3 @@ code {
 .clue-card-bonk-shake {
   animation: clue-card-bonk-shake 0.5s ease-in-out;
 }
-
-/* Check-clues READY: muted disabled chrome slides down, revealing active CTA */
-@keyframes ready-btn-cooldown-slide {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
-}
-
-.ready-btn-cooldown-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  border-radius: inherit;
-  box-sizing: border-box;
-  /* Opaque disabled primary (muted emerald + soft text) — not a filter/tint */
-  background: color-mix(in srgb, #10b981 42%, #64748b 58%); /* emerald-500 + slate-500 */
-  color: color-mix(in srgb, #020617 50%, #94a3b8 50%); /* slate-950 + slate-400 */
-  font-weight: 800;
-  letter-spacing: 0.025em;
-  animation-name: ready-btn-cooldown-slide;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}

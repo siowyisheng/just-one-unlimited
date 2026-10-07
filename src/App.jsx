@@ -2268,32 +2268,17 @@ export default function GameRoom() {
                           Hide repeated or disallowed clues
                         </h3>
 
-                        {/* READY — disabled chrome slides down over READY_FOR_GUESSER_DELAY_SECONDS */}
+                        {/* READY — muted + countdown text for READY_FOR_GUESSER_DELAY_SECONDS */}
                         <button
                           type="button"
                           onClick={handleConfirmCluesReady}
                           disabled={readyDelaySeconds > 0}
                           aria-busy={readyDelaySeconds > 0}
-                          className={
-                            readyDelaySeconds > 0
-                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm'
-                              : 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
-                          }
+                          className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm select-none"
                         >
-                          {/* Active primary underneath; curtain reveals it as cooldown completes */}
-                          <span className="relative z-0">READY</span>
-                          {readyDelaySeconds > 0 && (
-                            <span
-                              key={`${currentWordKey}-ready-cooldown`}
-                              className="ready-btn-cooldown-overlay"
-                              style={{
-                                animationDuration: `${READY_FOR_GUESSER_DELAY_SECONDS}s`,
-                              }}
-                              aria-hidden="true"
-                            >
-                              READY
-                            </span>
-                          )}
+                          {readyDelaySeconds > 0
+                            ? `READY (${readyDelaySeconds})`
+                            : 'READY'}
                         </button>
                       </div>
                     </>
