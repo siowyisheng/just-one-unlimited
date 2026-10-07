@@ -39,6 +39,69 @@ const normalizeKeyword = (value) => String(value ?? '').trim().replace(/\s+/g, '
 
 const keywordText = (item) => (typeof item === 'object' && item !== null ? item.text : item);
 
+// Shared guesser/word pick used by startNextRound and skip-keyword.
+// playerList order matters: first candidate with a non-empty eligible pool wins.
+const pickGuesserAndWord = (availableWords, playerList, counts = {}) => {
+  if (!availableWords?.length || !playerList?.length) {
+    return { kind: 'game_over' };
+  }
+
+  let chosenGuesser = null;
+  let validWordPool = [];
+
+  for (let i = 0; i < playerList.length; i++) {
+    const candidate = playerList[i];
+    const pool = availableWords.filter(
+      (w) => typeof w === 'object' && w.authorId !== candidate.key
+    );
+
+    if (pool.length > 0) {
+      chosenGuesser = candidate;
+      validWordPool = pool;
+      break;
+    }
+  }
+
+  if (!chosenGuesser || validWordPool.length === 0) {
+    return { kind: 'game_over' };
+  }
+
+  const weightedPool = validWordPool.map((word) => {
+    const authorId = typeof word === 'object' ? word.authorId : 'unknown';
+    const timesChosen = counts[authorId] || 0;
+    const weight = 1 / (timesChosen + 1);
+    return { word, weight };
+  });
+
+  const totalWeight = weightedPool.reduce((sum, item) => sum + item.weight, 0);
+  let randomValue = Math.random() * totalWeight;
+  let selectedWord = validWordPool[0];
+
+  for (const item of weightedPool) {
+    if (randomValue < item.weight) {
+      selectedWord = item.word;
+      break;
+    }
+    randomValue -= item.weight;
+  }
+
+  const authorId = typeof selectedWord === 'object' ? selectedWord.authorId : null;
+  const updatedCounts = { ...counts };
+  if (authorId) {
+    updatedCounts[authorId] = (updatedCounts[authorId] || 0) + 1;
+  }
+
+  const updatedWordList = availableWords.filter((w) => w !== selectedWord);
+
+  return {
+    kind: 'round',
+    chosenGuesser,
+    selectedWord,
+    updatedCounts,
+    updatedWordList,
+  };
+};
+
 const generateRandomUsername = () => {
   const randomId = Math.floor(1000 + Math.random() * 9000);
   return `Player_${randomId}`;
@@ -104,6 +167,7 @@ export default function GameRoom() {
   // Past keywords for this session. Stored in board_state as { text, correct }.
   const [playedKeywords, setPlayedKeywords] = useState([]);
   const advancingRoundRef = useRef(false);
+  const skipKeywordInFlightRef = useRef(false);
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -313,7 +377,14 @@ export default function GameRoom() {
     };
   }, [gameStatus, roundWon]);
 
-  // Ticking timer for the clue-giving phase, shown to every player
+  // Stable identity for the active keyword (object refs change on every row sync).
+  const currentWordKey = [
+    String(keywordText(currentWord) ?? ''),
+    typeof currentWord === 'object' && currentWord ? String(currentWord.authorId ?? '') : '',
+  ].join('\0');
+
+  // Ticking timer for the clue-giving phase, shown to every player.
+  // Resets when the keyword changes (including SKIP KEYWORD).
   useEffect(() => {
     if (gameStatus !== 'in_round') return;
 
@@ -327,7 +398,16 @@ export default function GameRoom() {
       clearInterval(interval);
       setClueWaitSeconds(0);
     };
-  }, [gameStatus]);
+  }, [gameStatus, currentWordKey]);
+
+  // Fresh clue draft + visibility state whenever the keyword changes (skip / next round).
+  useEffect(() => {
+    setMyClueInput('');
+    invalidCluesRef.current = [];
+    supersededInvalidRef.current.clear();
+    invalidWritePendingRef.current = false;
+    setInvalidClues([]);
+  }, [currentWordKey]);
 
   useEffect(() => {
     if (isEditingName && editInputRef.current) {
@@ -577,7 +657,6 @@ export default function GameRoom() {
     );
   };
 
-  // Helper: Start Next Round Logic
   // Helper: Start Next Round Logic with Weighted Word Selection
   const startNextRound = async (availableWords, playerList, playedEntry) => {
     // 1. Fetch existing player_word_counts and the played-keyword history
@@ -592,7 +671,9 @@ export default function GameRoom() {
     const nextPlayed = playedEntry ? [...existingPlayed, playedEntry] : existingPlayed;
     if (playedEntry) setPlayedKeywords(nextPlayed);
 
-    if (!availableWords || availableWords.length === 0) {
+    const pick = pickGuesserAndWord(availableWords, playerList, counts);
+
+    if (pick.kind === 'game_over') {
       await supabase
         .from('game_sessions')
         .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
@@ -600,78 +681,18 @@ export default function GameRoom() {
       return;
     }
 
-    // 2. Find a valid guesser who has words NOT submitted by them
-    let chosenGuesser = null;
-    let validWordPool = [];
-
-    for (let i = 0; i < playerList.length; i++) {
-      const candidate = playerList[i];
-      // Filter out words authored by this guesser candidate
-      const pool = availableWords.filter(
-        (w) => typeof w === 'object' && w.authorId !== candidate.key
-      );
-
-      if (pool.length > 0) {
-        chosenGuesser = candidate;
-        validWordPool = pool;
-        break;
-      }
-    }
-
-    // If no player has valid words available, Game Over
-    if (!chosenGuesser || validWordPool.length === 0) {
-      await supabase
-        .from('game_sessions')
-        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
-        .eq('id', sessionId);
-      return;
-    }
-
-    // 3. Calculate weights for each word in validWordPool based on author's count
-    const weightedPool = validWordPool.map((word) => {
-      const authorId = typeof word === 'object' ? word.authorId : 'unknown';
-      const timesChosen = counts[authorId] || 0;
-      // Higher weight for players with fewer chosen words
-      const weight = 1 / (timesChosen + 1);
-      return { word, weight };
-    });
-
-    // 4. Perform Weighted Random Selection
-    const totalWeight = weightedPool.reduce((sum, item) => sum + item.weight, 0);
-    let randomValue = Math.random() * totalWeight;
-    let selectedWord = validWordPool[0];
-
-    for (const item of weightedPool) {
-      if (randomValue < item.weight) {
-        selectedWord = item.word;
-        break;
-      }
-      randomValue -= item.weight;
-    }
-
-    // 5. Update counts for the chosen word's author
-    const authorId = typeof selectedWord === 'object' ? selectedWord.authorId : null;
-    const updatedCounts = { ...counts };
-    if (authorId) {
-      updatedCounts[authorId] = (updatedCounts[authorId] || 0) + 1;
-    }
-
-    // 6. Remove selected word from remaining word list
-    const updatedWordList = availableWords.filter((w) => w !== selectedWord);
-
-    // 7. Push new round state and updated counts to Supabase
     await supabase
       .from('game_sessions')
       .update({
         game_status: 'in_round',
-        current_guesser_id: chosenGuesser.key,
-        current_word: selectedWord,
+        current_guesser_id: pick.chosenGuesser.key,
+        current_word: pick.selectedWord,
         submitted_clues: [],
         invalid_clues: [],
         submitted_guess: null,
         round_won: false,
-        word_list: updatedWordList,
-        player_word_counts: updatedCounts,
+        word_list: pick.updatedWordList,
+        player_word_counts: pick.updatedCounts,
         board_state: nextPlayed,
       })
       .eq('id', sessionId);
@@ -835,6 +856,9 @@ export default function GameRoom() {
     const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
+    const expectedText = String(keywordText(currentWord) ?? '').trim();
+    if (!expectedText) return;
+
     clearTyping();
 
     const newClueEntry = {
@@ -847,10 +871,22 @@ export default function GameRoom() {
     setSubmittedClues(updatedClues);
     setMyClueInput('');
 
-    await supabase
+    // CAS on keyword so a concurrent SKIP cannot leave stale clues on the new word.
+    const { data: updated, error } = await supabase
       .from('game_sessions')
       .update({ submitted_clues: updatedClues })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('current_word->>text', expectedText)
+      .select('id');
+
+    if (error) {
+      console.error('Error submitting clue:', error);
+      return;
+    }
+    if (!updated?.length) {
+      // Keyword was skipped (or otherwise changed); realtime will resync.
+      setSubmittedClues((prev) => prev.filter((c) => c !== newClueEntry));
+    }
   };
 
   const invalidClueSig = (list) => (Array.isArray(list) ? list.join('\u0000') : '');
@@ -925,14 +961,20 @@ export default function GameRoom() {
     persistInvalidClues(updated);
   };
 
-  // Transition game phase when READY is clicked
+  // Transition game phase when READY is clicked.
+  // CAS on the current keyword so a concurrent SKIP KEYWORD is not overridden
+  // into guesser_turn with a wiped clue list.
   const handleConfirmCluesReady = async () => {
     if (!sessionId) return;
+    const expectedText = String(keywordText(currentWord) ?? '').trim();
+    if (!expectedText) return;
 
     await supabase
       .from('game_sessions')
       .update({ game_status: 'guesser_turn' })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('game_status', 'in_round')
+      .eq('current_word->>text', expectedText);
   };
 
   // 3. Trigger Clue Glow / Shine Effect for all players.
@@ -1044,6 +1086,104 @@ export default function GameRoom() {
       await startNextRound(wordList, nextPlayersOrder, playedEntry);
     } finally {
       advancingRoundRef.current = false;
+    }
+  };
+
+  // Clue-giver skip: replace the round keyword without scoring it.
+  // Concurrent clicks are safe via compare-and-swap on current_word text +
+  // guesser + in_round — only the first successful UPDATE wins.
+  const handleSkipKeyword = async () => {
+    if (!sessionId || skipKeywordInFlightRef.current) return;
+    if (gameStatus !== 'in_round') return;
+    if (CLIENT_ID === currentGuesserId) return;
+
+    const expectedText = String(keywordText(currentWord) ?? '').trim();
+    const expectedGuesserId = currentGuesserId;
+    if (!expectedText || !expectedGuesserId) return;
+
+    skipKeywordInFlightRef.current = true;
+    clearTyping();
+
+    try {
+      const { data: sessionData, error: fetchError } = await supabase
+        .from('game_sessions')
+        .select('word_list, player_word_counts, current_word, current_guesser_id, game_status')
+        .eq('id', sessionId)
+        .single();
+
+      if (fetchError || !sessionData) {
+        console.error('Error loading session for skip:', fetchError);
+        return;
+      }
+
+      if (sessionData.game_status !== 'in_round') return;
+      if (sessionData.current_guesser_id !== expectedGuesserId) return;
+      if (String(keywordText(sessionData.current_word) ?? '').trim() !== expectedText) return;
+
+      const availableWords = sessionData.word_list || [];
+      const counts = sessionData.player_word_counts || {};
+      const players = onlinePlayersRef.current;
+
+      // Prefer keeping the same guesser; otherwise rotate like NEXT KEYWORD.
+      const guesserIdx = players.findIndex((p) => p.key === expectedGuesserId);
+      const playerList =
+        guesserIdx >= 0
+          ? [...players.slice(guesserIdx), ...players.slice(0, guesserIdx)]
+          : players;
+
+      const pick = pickGuesserAndWord(availableWords, playerList, counts);
+
+      // CAS: UPDATE … WHERE id AND in_round AND same guesser AND same keyword text.
+      // .select() returns rows only when the WHERE matched — empty means we lost the race.
+      const applySkipUpdate = (patch) =>
+        supabase
+          .from('game_sessions')
+          .update(patch)
+          .eq('id', sessionId)
+          .eq('game_status', 'in_round')
+          .eq('current_guesser_id', expectedGuesserId)
+          .eq('current_word->>text', expectedText)
+          .select('id');
+
+      if (pick.kind === 'game_over') {
+        const { data: updated, error } = await applySkipUpdate({
+          game_status: 'game_over',
+          round_won: false,
+          submitted_clues: [],
+          invalid_clues: [],
+          submitted_guess: null,
+          current_word: null,
+        });
+
+        if (error) {
+          console.error('Error ending game after skip:', error);
+          return;
+        }
+        if (!updated?.length) return;
+        return;
+      }
+
+      const { data: updated, error } = await applySkipUpdate({
+        game_status: 'in_round',
+        current_guesser_id: pick.chosenGuesser.key,
+        current_word: pick.selectedWord,
+        submitted_clues: [],
+        invalid_clues: [],
+        submitted_guess: null,
+        round_won: false,
+        word_list: pick.updatedWordList,
+        player_word_counts: pick.updatedCounts,
+      });
+
+      if (error) {
+        console.error('Error skipping keyword:', error);
+        return;
+      }
+      if (!updated?.length) return;
+
+      setMyClueInput('');
+    } finally {
+      skipKeywordInFlightRef.current = false;
     }
   };
 
@@ -1420,6 +1560,14 @@ export default function GameRoom() {
                       </p>
                     )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSkipKeyword}
+                    className="self-center px-4 py-2 text-sm font-semibold text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors cursor-pointer uppercase tracking-wide"
+                  >
+                    SKIP KEYWORD
+                  </button>
 
                   {/* Clue Input Form or Waiting Text */}
                   {!hasSubmittedMyClue && (
