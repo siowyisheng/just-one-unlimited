@@ -2110,7 +2110,11 @@ export default function GameRoom() {
                 <div className="flex items-center gap-2">
                   <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-yellow-400' : 'bg-emerald-500'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                    {isGuesser ? 'Wait for Clues' : 'Give a Clue'}
+                    {isGuesser
+                      ? 'Wait for Clues'
+                      : allCluesSubmitted
+                        ? 'Check Clues'
+                        : 'Give a Clue'}
                   </span>
                 </div>
                 <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
