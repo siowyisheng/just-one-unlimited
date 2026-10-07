@@ -243,9 +243,9 @@ const exactDuplicateClueSet = (clues) => {
 };
 
 // Fold one completed round into durable per-player counters (playerKey-keyed).
-// Clues count only once the round is retired (not mid-round). Guesser turns
-// count every retired round for that guesser — submitted guess, CLOSE ENOUGH,
-// wrong guess, give-up (gaveUp), timeout (timedOut), or zero-visible-clue loss.
+// Clues count only once the round is retired (not mid-round). Guesser attempts
+// count for submitted guess (exact / wrong / CLOSE ENOUGH), give-up, or timeout.
+// Zero-visible-clue automatic losses do NOT count — the guesser never got to guess.
 // Skip-keyword does not retire via playedEntry, so it does not bump guess stats.
 const accumulateRoundPlayerStats = (
   prevStats,
@@ -253,6 +253,8 @@ const accumulateRoundPlayerStats = (
     clues = [],
     invalidClues = [],
     guesserId = null,
+    submittedGuess = null,
+    currentWord = null,
     roundWon = false,
   } = {}
 ) => {
@@ -281,7 +283,16 @@ const accumulateRoundPlayerStats = (
     });
   });
 
-  if (guesserId) {
+  const hasSubmittedGuess =
+    submittedGuess != null && String(submittedGuess).trim() !== '';
+  // Auto-loss with no visible clues: no guess string, not give-up, not timeout.
+  const countGuessAttempt =
+    Boolean(guesserId) &&
+    (hasSubmittedGuess ||
+      isGuessRoundGaveUp(currentWord) ||
+      isGuessRoundTimedOut(currentWord));
+
+  if (countGuessAttempt) {
     bump(guesserId, {
       guessesMade: 1,
       correctGuesses: roundWon ? 1 : 0,
@@ -1211,12 +1222,14 @@ export default function GameRoom() {
       );
       if (!alreadyLogged) {
         nextPlayed = [...existingPlayed, playedEntry];
-        // Guesser turn complete: submitted guess, CLOSE ENOUGH, wrong guess,
-        // give-up / timeout (current_word.gaveUp|timedOut), or zero-clue loss.
+        // Guesser attempt: submitted guess / CLOSE ENOUGH / give-up / timeout.
+        // Zero-visible-clue auto-loss is skipped inside accumulateRoundPlayerStats.
         nextPlayerStats = accumulateRoundPlayerStats(existingPlayerStats, {
           clues: sessionData?.submitted_clues || [],
           invalidClues: sessionData?.invalid_clues || [],
           guesserId: sessionData?.current_guesser_id || null,
+          submittedGuess: sessionData?.submitted_guess ?? null,
+          currentWord: sessionData?.current_word ?? null,
           roundWon: Boolean(sessionData?.round_won) || Boolean(playedEntry.correct),
         });
       }
