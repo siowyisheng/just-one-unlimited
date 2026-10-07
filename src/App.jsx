@@ -9,6 +9,20 @@ import {
 import WordSubmissionWidget from './components/WordSubmissionWidget';
 import ClueCardsGrid from './components/ClueCardsGrid';
 
+/** Mid-round sibling card: keyword entry below the phase card (no status ping). */
+function AddMoreKeywordsCard(props) {
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+      <div className="flex items-center border-b border-slate-700 pb-4">
+        <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+          ADD MORE KEYWORDS
+        </span>
+      </div>
+      <WordSubmissionWidget {...props} />
+    </div>
+  );
+}
+
 // Lightweight native Web Audio victory sound synth
 const playVictorySound = () => {
   try {
@@ -1762,6 +1776,7 @@ export default function GameRoom() {
 
           {/* GUESSER TURN PHASE */}
           {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (!roundTimedOut || submittedGuess) && (
+            <>
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative">
 
               {/* Timer & Phase Header */}
@@ -1855,21 +1870,6 @@ export default function GameRoom() {
                     </div>
                   </div>
 
-                  {/* Word Submission Widget for Clue Givers while waiting for guesser */}
-                  {!isGuesser && (
-                    <div className="pt-4 border-t border-slate-700/60">
-                      <WordSubmissionWidget
-                        newWord={newWord}
-                        setNewWord={updateNewWord}
-                        onAddWord={handleAddWord}
-                        onRemoveWord={handleRemoveWord}
-                        wordList={wordList}
-                        getPlayerName={getPlayerName}
-                        currentUserId={CLIENT_ID}
-                        keywordError={keywordError}
-                      />
-                    </div>
-                  )}
                 </div>
               ) : (
                 /* SUB-PHASE B: GUESS SUBMITTED / RESULTS VIEW (Shown to ALL PLAYERS) */
@@ -1961,6 +1961,19 @@ export default function GameRoom() {
                 </div>
               )}
             </div>
+            {!submittedGuess && !isGuesser && (
+              <AddMoreKeywordsCard
+                newWord={newWord}
+                setNewWord={updateNewWord}
+                onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
+                wordList={wordList}
+                getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
+                keywordError={keywordError}
+              />
+            )}
+            </>
           )}
 
           {/* GAME OVER VIEW */}
@@ -1988,6 +2001,7 @@ export default function GameRoom() {
             </>
           ) : gameStatus === 'in_round' ? (
             /* MAIN GAME DIV */
+            <>
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-700 pb-4">
                 <div className="flex items-center gap-2">
@@ -2008,17 +2022,6 @@ export default function GameRoom() {
                       Waiting for clue givers...
                     </p>
                   </div>
-
-                  <WordSubmissionWidget
-                    newWord={newWord}
-                    setNewWord={updateNewWord}
-                    onAddWord={handleAddWord}
-                    onRemoveWord={handleRemoveWord}
-                    wordList={wordList}
-                    getPlayerName={getPlayerName}
-                    currentUserId={CLIENT_ID}
-                    keywordError={keywordError}
-                  />
                 </div>
               ) : (
                 /* CLUE GIVER VIEW */
@@ -2158,6 +2161,19 @@ export default function GameRoom() {
                 </div>
               )}
             </div>
+            {isGuesser && (
+              <AddMoreKeywordsCard
+                newWord={newWord}
+                setNewWord={updateNewWord}
+                onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
+                wordList={wordList}
+                getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
+                keywordError={keywordError}
+              />
+            )}
+            </>
           ) : gameStatus === 'lobby' ? (
 
             /* LOBBY VIEW: Word Submission & Start Game */
