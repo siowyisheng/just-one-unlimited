@@ -12,6 +12,7 @@ import React from 'react';
  *
  * Empty waiting slots can call `onBonk(playerKey)` ("bonk" the clue giver).
  * Submitted cards (masked or own) do not bonk; own take-back stays take-back.
+ * Pass `bonkingPlayerKey` to play the shared rotating card-shake animation.
  */
 export default function ClueCardsGrid({
   clues,
@@ -29,6 +30,8 @@ export default function ClueCardsGrid({
   onTakeBack = null,
   /** Clue-giving: click an empty slot to hurry that giver (bonk). */
   onBonk = null,
+  /** Player key whose CLUE card is currently playing the bonk shake. */
+  bonkingPlayerKey = null,
 }) {
   if (!Array.isArray(clues) || clues.length === 0) return null;
 
@@ -55,6 +58,11 @@ export default function ClueCardsGrid({
         // Only empty waiting slots bonk — not masked ****** or own submitted clue.
         const isBonkCard =
           canBonk && !hasClueText && !isTakeBackCard && Boolean(c?.playerKey);
+
+        const isCardBonking =
+          Boolean(bonkingPlayerKey) &&
+          Boolean(c?.playerKey) &&
+          c.playerKey === bonkingPlayerKey;
 
         const isExactDup =
           !waitingDisplay &&
@@ -83,6 +91,10 @@ export default function ClueCardsGrid({
               : isBonkCard
                 ? 'bg-slate-700/70 border-slate-600/80 shadow-md cursor-pointer hover:border-slate-500'
                 : `bg-slate-700/70 border-slate-600/80 shadow-md ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
+
+        const cardClass = `p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${baseChrome}${
+          isCardBonking ? ' clue-card-bonk-shake' : ''
+        }`;
 
         const cardBody = (
           <>
@@ -127,7 +139,7 @@ export default function ClueCardsGrid({
               onClick={onTakeBack}
               aria-label="Change clue"
               title="Change clue"
-              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative w-full ${baseChrome}`}
+              className={`${cardClass} w-full`}
             >
               {cardBody}
             </button>
@@ -142,7 +154,7 @@ export default function ClueCardsGrid({
               onClick={() => onBonk(c.playerKey)}
               aria-label={`Bonk ${getPlayerName(c.playerKey, c.username)}`}
               title="Bonk"
-              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative w-full ${baseChrome}`}
+              className={`${cardClass} w-full`}
             >
               {cardBody}
             </button>
@@ -153,7 +165,7 @@ export default function ClueCardsGrid({
           <div
             key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
             onClick={canToggle ? () => onToggleClue(c.clue) : undefined}
-            className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${baseChrome}`}
+            className={cardClass}
           >
             {cardBody}
           </div>
