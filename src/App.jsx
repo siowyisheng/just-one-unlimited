@@ -2206,6 +2206,14 @@ export default function GameRoom() {
     !submittedGuess &&
     !roundWon &&
     (visibleClues.length === 0 || roundTimedOut || roundGaveUp);
+  // Result screens (submitted guess, CLOSE ENOUGH, give-up, timeout, zero-clue)
+  // share one header. Active guessing keeps the role titles.
+  const showRoundResult = Boolean(submittedGuess) || roundLost;
+  const guessPhaseTitle = showRoundResult
+    ? 'Round Result'
+    : isGuesser
+      ? 'Guess the Keyword'
+      : 'Trust the Clues';
 
   useEffect(() => {
     if (!roundLost) lossPhraseRef.current = null;
@@ -2261,6 +2269,14 @@ export default function GameRoom() {
           {/* GUESSER TURN PHASE: no clues left, so the round is lost */}
           {roundLost && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+              <div className="flex items-center border-b border-slate-700 pb-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+                  <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                    {guessPhaseTitle}
+                  </span>
+                </div>
+              </div>
               <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg mx-auto shadow-2xl text-center">
                 <h2 className="text-3xl font-black text-rose-400 tracking-wider">
                   {currentLossPhrase()}
@@ -2304,7 +2320,7 @@ export default function GameRoom() {
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                    {isGuesser ? 'Guess the Keyword' : 'Trust the Clues'}
+                    {guessPhaseTitle}
                   </span>
                 </div>
                 <div
@@ -2488,13 +2504,11 @@ export default function GameRoom() {
                       {!isGuesser && (
                         <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full">
                           <button
+                            type="button"
                             onClick={handleCloseEnough}
-                            className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-1 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-slate-100 font-bold rounded-xl transition-colors cursor-pointer text-sm flex items-center justify-center"
                           >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span>CLOSE ENOUGH</span>
+                            CLOSE ENOUGH
                           </button>
 
                           <button
