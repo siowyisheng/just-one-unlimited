@@ -167,3 +167,86 @@ code {
     transform: translateY(-2px);
   }
 }
+
+/* Guessing-phase countdown (shared deadline; medium-high hierarchy) */
+.guess-countdown {
+  --guess-countdown-accent: #f59e0b; /* amber-500 */
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+
+.guess-countdown__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.guess-countdown__track,
+.guess-countdown__progress {
+  fill: none;
+  stroke-width: 2.75;
+}
+
+.guess-countdown__track {
+  stroke: rgba(51, 65, 85, 0.95);
+}
+
+.guess-countdown__progress {
+  stroke: var(--guess-countdown-accent);
+  stroke-linecap: round;
+  transition:
+    stroke-dasharray 100ms linear,
+    stroke 200ms ease;
+}
+
+.guess-countdown__value {
+  position: relative;
+  z-index: 1;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+  transition: color 200ms ease;
+}
+
+.guess-countdown--urgent {
+  --guess-countdown-accent: #f43f5e; /* rose-500 */
+  border-color: rgba(244, 63, 94, 0.45);
+  box-shadow: 0 0 18px rgba(244, 63, 94, 0.28);
+  animation: guess-countdown-pulse 0.9s ease-in-out infinite;
+}
+
+.guess-countdown--urgent .guess-countdown__value {
+  color: #fda4af;
+}
+
+.guess-countdown--zero {
+  animation: none;
+  transform: scale(1.04);
+}
+
+@keyframes guess-countdown-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
