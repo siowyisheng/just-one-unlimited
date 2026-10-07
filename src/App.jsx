@@ -2216,10 +2216,22 @@ export default function GameRoom() {
                     />
                   )}
 
-                  {/* Shared Clues & Visibility Filter View */}
+                  {/* Check clues: same CLUE card grid as clue-giving, then review + READY */}
                   {allCluesSubmitted && (
-                    <div className="mt-4 pt-6 border-t border-slate-700 flex flex-col gap-4">
-                      <div className="flex items-center justify-between">
+                    <>
+                      <ClueCardsGrid
+                        clues={submittedClues}
+                        invalidClues={invalidClues}
+                        normalizeClue={normalizeClue}
+                        isExactDuplicateClue={isExactDuplicateClue}
+                        getPlayerName={getPlayerName}
+                        clueWordClass={clueWordClass}
+                        interactive
+                        isGuesser={isGuesser}
+                        onToggleClue={handleToggleClueVisibility}
+                      />
+
+                      <div className="flex flex-col items-center gap-3 text-center">
                         <div>
                           <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
                             Review & Filter Clues
@@ -2245,19 +2257,7 @@ export default function GameRoom() {
                             : 'READY FOR GUESSER'}
                         </button>
                       </div>
-
-                      <ClueCardsGrid
-                        clues={submittedClues}
-                        invalidClues={invalidClues}
-                        normalizeClue={normalizeClue}
-                        isExactDuplicateClue={isExactDuplicateClue}
-                        getPlayerName={getPlayerName}
-                        clueWordClass={clueWordClass}
-                        interactive
-                        isGuesser={isGuesser}
-                        onToggleClue={handleToggleClueVisibility}
-                      />
-                    </div>
+                    </>
                   )}
                 </div>
               )}
