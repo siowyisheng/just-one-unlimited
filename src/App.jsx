@@ -223,6 +223,10 @@ export default function GameRoom() {
   const [clueFormBonking, setClueFormBonking] = useState(false);
   const clueBonkTimerRef = useRef(null);
   const applyClueFormBonkRef = useRef(() => {});
+  // Ephemeral "bonk" shake on a CLUE card (visible to all clients).
+  const [clueCardBonkingKey, setClueCardBonkingKey] = useState(null);
+  const clueCardBonkTimerRef = useRef(null);
+  const applyClueCardBonkRef = useRef(() => {});
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
@@ -437,17 +441,36 @@ export default function GameRoom() {
   };
   applyClueFormBonkRef.current = applyClueFormBonk;
 
+  const applyClueCardBonk = (playerKey) => {
+    if (!playerKey) return;
+    // Restart the CSS animation if already shaking (re-bonk).
+    setClueCardBonkingKey(null);
+    window.requestAnimationFrame(() => {
+      setClueCardBonkingKey(playerKey);
+    });
+    window.clearTimeout(clueCardBonkTimerRef.current);
+    clueCardBonkTimerRef.current = window.setTimeout(() => {
+      setClueCardBonkingKey(null);
+      clueCardBonkTimerRef.current = null;
+    }, CLUE_BONK_MS);
+  };
+  applyClueCardBonkRef.current = applyClueCardBonk;
+
   // Clear bonk shake when leaving clue-giving (or any status change).
   useEffect(() => {
     window.clearTimeout(clueBonkTimerRef.current);
     clueBonkTimerRef.current = null;
     setClueFormBonking(false);
+    window.clearTimeout(clueCardBonkTimerRef.current);
+    clueCardBonkTimerRef.current = null;
+    setClueCardBonkingKey(null);
   }, [gameStatus]);
 
   useEffect(() => {
     return () => {
       window.clearTimeout(typingIdleTimerRef.current);
       window.clearTimeout(clueBonkTimerRef.current);
+      window.clearTimeout(clueCardBonkTimerRef.current);
     };
   }, []);
 
@@ -777,11 +800,14 @@ export default function GameRoom() {
       });
     });
 
-    // Clue-giving "bonk": shake the target's clue form. Ephemeral broadcast only.
+    // Clue-giving "bonk": shake target card (all clients) + form (target only).
+    // Ignore own echo — bonker already applied card shake optimistically.
     channel.on('broadcast', { event: 'clue_bonk' }, ({ payload }) => {
       const playerKey = payload?.playerKey;
-      if (!playerKey || playerKey !== CLIENT_ID) return;
-      applyClueFormBonkRef.current();
+      if (!playerKey) return;
+      if (payload?.from === CLIENT_ID) return;
+      applyClueCardBonkRef.current(playerKey);
+      if (playerKey === CLIENT_ID) applyClueFormBonkRef.current();
     });
 
     channel.subscribe(async (status) => {
@@ -1297,21 +1323,23 @@ export default function GameRoom() {
     }
   };
 
-  // Clue-giving "bonk": click an empty CLUE card to shake that giver's form.
-  // Broadcast-only (like typing) — no board_state write.
+  // Clue-giving "bonk": click an empty CLUE card to shake that giver's card
+  // (all clients) and form (target). Broadcast-only — no board_state write.
+  // Card shake applies locally first so the bonker sees it without waiting
+  // for the round-trip; own broadcast echo is ignored via `from`.
   const handleBonkClueGiver = (playerKey) => {
     if (!playerKey || !sessionId) return;
     if (gameStatus !== 'in_round') return;
     if (submittedClues.some((c) => c.playerKey === playerKey)) return;
 
-    // Self-bonk applies locally; peers do not echo broadcast to the sender.
+    applyClueCardBonk(playerKey);
     if (playerKey === CLIENT_ID) applyClueFormBonk();
 
     if (!channelRef.current) return;
     channelRef.current.send({
       type: 'broadcast',
       event: 'clue_bonk',
-      payload: { playerKey },
+      payload: { playerKey, from: CLIENT_ID },
     });
   };
 
@@ -2129,6 +2157,7 @@ export default function GameRoom() {
                     clueWordClass={clueWordClass}
                     waitingDisplay
                     onBonk={handleBonkClueGiver}
+                    bonkingPlayerKey={clueCardBonkingKey}
                   />
                   <p className={waitingLineClass}>
                     Waiting for clue givers...
@@ -2192,6 +2221,7 @@ export default function GameRoom() {
                       takeBackPlayerKey={canTakeBackClue ? CLIENT_ID : null}
                       onTakeBack={canTakeBackClue ? handleTakeBackClue : null}
                       onBonk={handleBonkClueGiver}
+                      bonkingPlayerKey={clueCardBonkingKey}
                     />
                   )}
 
