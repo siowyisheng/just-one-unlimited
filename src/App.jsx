@@ -196,6 +196,149 @@ const isGuessRoundTimedOut = (word) =>
 const isGuessRoundGaveUp = (word) =>
   Boolean(typeof word === 'object' && word && word.gaveUp);
 
+// board_state: legacy array of { text, correct }, or
+// { keywords: [...], playerStats: { [playerKey]: { cluesGiven, successfulClues, guessesMade, correctGuesses } } }.
+const emptyPlayerStat = () => ({
+  cluesGiven: 0,
+  successfulClues: 0,
+  guessesMade: 0,
+  correctGuesses: 0,
+});
+
+const parseBoardState = (raw) => {
+  if (Array.isArray(raw)) {
+    return { keywords: raw, playerStats: {} };
+  }
+  if (raw && typeof raw === 'object') {
+    return {
+      keywords: Array.isArray(raw.keywords) ? raw.keywords : [],
+      playerStats:
+        raw.playerStats && typeof raw.playerStats === 'object' && !Array.isArray(raw.playerStats)
+          ? raw.playerStats
+          : {},
+    };
+  }
+  return { keywords: [], playerStats: {} };
+};
+
+const serializeBoardState = (keywords, playerStats) => ({
+  keywords: Array.isArray(keywords) ? keywords : [],
+  playerStats: playerStats && typeof playerStats === 'object' ? playerStats : {},
+});
+
+const normalizeClueText = (text) => String(text ?? '').trim().toLowerCase();
+
+const exactDuplicateClueSet = (clues) => {
+  const counts = {};
+  (Array.isArray(clues) ? clues : []).forEach((c) => {
+    if (!c?.clue) return;
+    const norm = normalizeClueText(c.clue);
+    counts[norm] = (counts[norm] || 0) + 1;
+  });
+  const exactDuplicates = new Set();
+  Object.keys(counts).forEach((norm) => {
+    if (counts[norm] > 1) exactDuplicates.add(norm);
+  });
+  return exactDuplicates;
+};
+
+// Fold one completed round into durable per-player counters (playerKey-keyed).
+// Clues count only once the round is retired (not mid-round). Guesses count only
+// when a guess was submitted; CLOSE ENOUGH counts as correct via roundWon.
+const accumulateRoundPlayerStats = (
+  prevStats,
+  {
+    clues = [],
+    invalidClues = [],
+    guesserId = null,
+    submittedGuess = null,
+    roundWon = false,
+  } = {}
+) => {
+  const next = { ...prevStats };
+  const bump = (playerKey, patch) => {
+    if (!playerKey) return;
+    const prev = next[playerKey] || emptyPlayerStat();
+    next[playerKey] = {
+      cluesGiven: (prev.cluesGiven || 0) + (patch.cluesGiven || 0),
+      successfulClues: (prev.successfulClues || 0) + (patch.successfulClues || 0),
+      guessesMade: (prev.guessesMade || 0) + (patch.guessesMade || 0),
+      correctGuesses: (prev.correctGuesses || 0) + (patch.correctGuesses || 0),
+    };
+  };
+
+  const exactDupes = exactDuplicateClueSet(clues);
+  const invalid = Array.isArray(invalidClues) ? invalidClues : [];
+
+  (Array.isArray(clues) ? clues : []).forEach((c) => {
+    if (!c?.playerKey || !c?.clue) return;
+    const norm = normalizeClueText(c.clue);
+    const successful = !exactDupes.has(norm) && !invalid.includes(norm);
+    bump(c.playerKey, {
+      cluesGiven: 1,
+      successfulClues: successful ? 1 : 0,
+    });
+  });
+
+  if (guesserId && submittedGuess != null && String(submittedGuess).trim() !== '') {
+    bump(guesserId, {
+      guessesMade: 1,
+      correctGuesses: roundWon ? 1 : 0,
+    });
+  }
+
+  return next;
+};
+
+const statPercent = (numerator, denominator) => {
+  const den = Number(denominator) || 0;
+  if (den <= 0) return null;
+  const num = Number(numerator) || 0;
+  return Math.round((num / den) * 100);
+};
+
+/** Small % with hover title + tap-to-reveal label (mobile). */
+function PlayerStatPct({ value, label, colorClass }) {
+  const [showTip, setShowTip] = useState(false);
+  const tipTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
+  }, []);
+
+  const revealTip = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowTip(true);
+    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
+    tipTimerRef.current = window.setTimeout(() => setShowTip(false), 1600);
+  };
+
+  const display = value == null ? '—' : `${value}%`;
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        title={label}
+        aria-label={`${label}: ${display}`}
+        onClick={revealTip}
+        className={`bg-transparent border-0 p-0 m-0 cursor-help text-[10px] font-semibold tabular-nums leading-none ${colorClass}`}
+      >
+        {display}
+      </button>
+      {showTip && (
+        <span
+          role="tooltip"
+          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-20 whitespace-nowrap rounded bg-slate-950 px-1.5 py-0.5 text-[9px] font-medium text-slate-200 shadow-lg pointer-events-none"
+        >
+          {label}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
   const [wordList, setWordList] = useState([]);
@@ -217,8 +360,10 @@ export default function GameRoom() {
   const [currentWord, setCurrentWord] = useState(null);
   const [submittedClues, setSubmittedClues] = useState([]);
   const [myClueInput, setMyClueInput] = useState('');
-  // Past keywords for this session. Stored in board_state as { text, correct }.
+  // Past keywords + per-player success stats. board_state is either a legacy
+  // array of { text, correct } or { keywords, playerStats } (see parseBoardState).
   const [playedKeywords, setPlayedKeywords] = useState([]);
+  const [playerStats, setPlayerStats] = useState({});
   const advancingRoundRef = useRef(false);
   const skipKeywordInFlightRef = useRef(false);
   // Hover (desktop) / first-tap (mobile) reveal for the quiet skip affordance.
@@ -689,7 +834,11 @@ export default function GameRoom() {
         if (Array.isArray(data.invalid_clues)) {
           acceptRemoteInvalidRef.current(data.invalid_clues);
         }
-        if (Array.isArray(data.board_state)) setPlayedKeywords(data.board_state);
+        if (data.board_state !== undefined) {
+          const parsed = parseBoardState(data.board_state);
+          setPlayedKeywords(parsed.keywords);
+          setPlayerStats(parsed.playerStats);
+        }
 
         if (data.game_status) {
           setGameStatus(data.game_status);
@@ -890,7 +1039,11 @@ export default function GameRoom() {
       setCurrentWord(data.current_word || null);
       setSubmittedClues(data.submitted_clues || []);
       acceptRemoteInvalidClues(data.invalid_clues || []);
-      setPlayedKeywords(Array.isArray(data.board_state) ? data.board_state : []);
+      {
+        const parsed = parseBoardState(data.board_state);
+        setPlayedKeywords(parsed.keywords);
+        setPlayerStats(parsed.playerStats);
+      }
       setSubmittedGuess(data.submitted_guess ?? null);
       const alreadyWon = Boolean(data.round_won);
       setRoundWon(alreadyWon);
@@ -920,20 +1073,27 @@ export default function GameRoom() {
   // When retiring a keyword (NEXT KEYWORD / playedEntry), concurrent clicks are
   // safe via compare-and-swap on current_word text — only the first successful
   // UPDATE appends to board_state and advances the round (same idea as SKIP).
+  // Player clue/guess success counters are folded into board_state.playerStats
+  // in that same winning write (append-once with the keyword).
   const startNextRound = async (availableWords, playerList, playedEntry) => {
     const expectedKeywordText = playedEntry
       ? String(playedEntry.text ?? '').trim()
       : null;
 
     // 1. Fetch counts, played history, and (when advancing) the server word pool
+    // plus round fields needed to score durable player stats.
     const { data: sessionData } = await supabase
       .from('game_sessions')
-      .select('player_word_counts, board_state, word_list, current_word')
+      .select(
+        'player_word_counts, board_state, word_list, current_word, submitted_clues, invalid_clues, submitted_guess, round_won, current_guesser_id'
+      )
       .eq('id', sessionId)
       .single();
 
     const counts = sessionData?.player_word_counts || {};
-    const existingPlayed = Array.isArray(sessionData?.board_state) ? sessionData.board_state : [];
+    const { keywords: existingPlayed, playerStats: existingPlayerStats } = parseBoardState(
+      sessionData?.board_state
+    );
 
     // Prefer the server word list when retiring a keyword so racing clients
     // share one pool (local wordList can lag a concurrent skip/advance).
@@ -942,7 +1102,9 @@ export default function GameRoom() {
       : availableWords;
 
     // Append-once: skip if this keyword is already in past history.
+    // Stats bump only on the first log so concurrent NEXT KEYWORD cannot double-count.
     let nextPlayed = existingPlayed;
+    let nextPlayerStats = existingPlayerStats;
     if (playedEntry) {
       const entryNorm = normalizeKeyword(playedEntry.text);
       const alreadyLogged = existingPlayed.some(
@@ -950,8 +1112,17 @@ export default function GameRoom() {
       );
       if (!alreadyLogged) {
         nextPlayed = [...existingPlayed, playedEntry];
+        nextPlayerStats = accumulateRoundPlayerStats(existingPlayerStats, {
+          clues: sessionData?.submitted_clues || [],
+          invalidClues: sessionData?.invalid_clues || [],
+          guesserId: sessionData?.current_guesser_id || null,
+          submittedGuess: sessionData?.submitted_guess ?? null,
+          roundWon: Boolean(sessionData?.round_won) || Boolean(playedEntry.correct),
+        });
       }
     }
+
+    const nextBoardState = serializeBoardState(nextPlayed, nextPlayerStats);
 
     // Another client already advanced past this keyword — no-op.
     if (expectedKeywordText) {
@@ -978,14 +1149,17 @@ export default function GameRoom() {
       const { data: updated, error } = await applyAdvanceUpdate({
         game_status: 'game_over',
         round_won: false,
-        board_state: nextPlayed,
+        board_state: nextBoardState,
       });
       if (error) {
         console.error('Error ending game after next keyword:', error);
         return;
       }
       if (expectedKeywordText && !updated?.length) return;
-      if (playedEntry) setPlayedKeywords(nextPlayed);
+      if (playedEntry) {
+        setPlayedKeywords(nextPlayed);
+        setPlayerStats(nextPlayerStats);
+      }
       return;
     }
 
@@ -999,7 +1173,7 @@ export default function GameRoom() {
       round_won: false,
       word_list: pick.updatedWordList,
       player_word_counts: pick.updatedCounts,
-      board_state: nextPlayed,
+      board_state: nextBoardState,
     });
 
     if (error) {
@@ -1008,7 +1182,10 @@ export default function GameRoom() {
     }
     if (expectedKeywordText && !updated?.length) return;
 
-    if (playedEntry) setPlayedKeywords(nextPlayed);
+    if (playedEntry) {
+      setPlayedKeywords(nextPlayed);
+      setPlayerStats(nextPlayerStats);
+    }
   };
   startNextRoundRef.current = startNextRound;
 
@@ -2485,6 +2662,15 @@ export default function GameRoom() {
               {onlinePlayers.map((playerObj, idx) => {
                 const isMe = playerObj.key === CLIENT_ID;
                 const isGuesserPlayer = playerObj.key === currentGuesserId;
+                const stats = playerStats[playerObj.key] || emptyPlayerStat();
+                const clueSuccessPct = statPercent(
+                  stats.successfulClues,
+                  stats.cluesGiven
+                );
+                const guessSuccessPct = statPercent(
+                  stats.correctGuesses,
+                  stats.guessesMade
+                );
 
                 return (
                   <div key={idx} className="flex flex-col">
@@ -2515,11 +2701,25 @@ export default function GameRoom() {
                           : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
                           }`}
                       >
-                        <span
-                          className="truncate min-w-0"
-                          title={`${playerObj.username}${isMe ? ' (You)' : ''}`}
-                        >
-                          {playerObj.username} {isMe && '(You)'}
+                        <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span
+                            className="truncate min-w-0"
+                            title={`${playerObj.username}${isMe ? ' (You)' : ''}`}
+                          >
+                            {playerObj.username} {isMe && '(You)'}
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            <PlayerStatPct
+                              value={clueSuccessPct}
+                              label="Successful clues given"
+                              colorClass="text-sky-400"
+                            />
+                            <PlayerStatPct
+                              value={guessSuccessPct}
+                              label="Correct guesses"
+                              colorClass="text-amber-500"
+                            />
+                          </span>
                         </span>
 
                         <span className="flex items-center gap-1.5 shrink-0">
