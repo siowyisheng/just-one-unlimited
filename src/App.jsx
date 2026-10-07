@@ -2260,7 +2260,7 @@ export default function GameRoom() {
                           Hide repeated or disallowed clues
                         </h3>
 
-                        {/* READY — visual cooldown overlay for READY_FOR_GUESSER_DELAY_SECONDS */}
+                        {/* READY — disabled chrome slides down over READY_FOR_GUESSER_DELAY_SECONDS */}
                         <button
                           type="button"
                           onClick={handleConfirmCluesReady}
@@ -2268,10 +2268,11 @@ export default function GameRoom() {
                           aria-busy={readyDelaySeconds > 0}
                           className={
                             readyDelaySeconds > 0
-                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm tracking-wide'
+                              ? 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 text-slate-950 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm'
                               : 'relative overflow-hidden px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
                           }
                         >
+                          {/* Active primary underneath; curtain reveals it as cooldown completes */}
                           <span className="relative z-0">READY</span>
                           {readyDelaySeconds > 0 && (
                             <span
