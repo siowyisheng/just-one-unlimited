@@ -1762,16 +1762,19 @@ export default function GameRoom() {
   // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word).
   // Concurrent clicks across clients are serialized in startNextRound via CAS
   // on current_word text + append-once dedupe into board_state.
-  // Clue givers always; guesser only on timeout / give-up / zero-visible-clue losses.
+  // Clue givers always; guesser on timeout / give-up / zero-visible-clue
+  // losses and on exact-correct (or CLOSE ENOUGH) victory — not wrong-guess.
   const handleNextWord = async () => {
     if (!sessionId || advancingRoundRef.current) return;
     if (isGuesser) {
-      const guesserMayAdvance =
+      const guesserMayAdvanceOnLoss =
         gameStatus === 'guesser_turn' &&
         !submittedGuess &&
         !roundWon &&
         (roundTimedOut || roundGaveUp || !hasVisibleGuessClues());
-      if (!guesserMayAdvance) return;
+      const guesserMayAdvanceOnVictory =
+        gameStatus === 'guesser_turn' && Boolean(submittedGuess) && roundWon;
+      if (!guesserMayAdvanceOnLoss && !guesserMayAdvanceOnVictory) return;
     }
     advancingRoundRef.current = true;
 
@@ -2320,17 +2323,17 @@ export default function GameRoom() {
                         clueWordClass={clueWordClass}
                       />
 
-                      {!isGuesser && (
-                        <button
-                          onClick={handleNextWord}
-                          className="mt-4 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
-                        >
-                          <span>NEXT KEYWORD</span>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      )}
+                      {/* Exact-correct victory: guesser and clue givers both see NEXT KEYWORD */}
+                      <button
+                        type="button"
+                        onClick={handleNextWord}
+                        className="mt-4 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
+                      >
+                        <span>NEXT KEYWORD</span>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                        </svg>
+                      </button>
                     </div>
                   ) : (
                     /* CASE 2: INCORRECT GUESS STATE */
