@@ -250,3 +250,33 @@ code {
     transform: scale(1.06);
   }
 }
+
+/* Clue-giving "bonk": hurry a slow clue giver (form shake on target client) */
+@keyframes clue-form-bonk-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-6px);
+  }
+  30% {
+    transform: translateX(6px);
+  }
+  45% {
+    transform: translateX(-4px);
+  }
+  60% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+  90% {
+    transform: translateX(2px);
+  }
+}
+
+.clue-form-bonk-shake {
+  animation: clue-form-bonk-shake 0.5s ease-in-out;
+}
