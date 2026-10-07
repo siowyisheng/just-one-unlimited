@@ -144,27 +144,27 @@ code {
   border-radius: 9999px;
   background: #fbbf24; /* amber-400 */
   opacity: 0.35;
-  animation: typing-dot-pulse 1.05s ease-in-out infinite;
+  animation: typing-dot-pulse 1.2s ease-in-out infinite;
 }
 
 .typing-dot:nth-child(2) {
-  animation-delay: 0.18s;
+  animation-delay: 0.2s;
 }
 
 .typing-dot:nth-child(3) {
-  animation-delay: 0.36s;
+  animation-delay: 0.4s;
 }
 
 @keyframes typing-dot-pulse {
   0%,
   80%,
   100% {
-    opacity: 0.3;
-    transform: translateY(0);
+    opacity: 0.28;
+    transform: translateY(0) scale(1);
   }
   40% {
-    opacity: 1;
-    transform: translateY(-2px);
+    opacity: 0.95;
+    transform: translateY(-2px) scale(1.15);
   }
 }
 
@@ -312,4 +312,185 @@ code {
 
 .clue-card-bonk-shake {
   animation: clue-card-bonk-shake 0.5s ease-in-out;
+}
+
+/* ── Party-game polish animations (local CSS only) ── */
+
+/* Exact-correct victory: one springy scale + soft amber flash on keyword / win phrase */
+@keyframes exact-correct-celebrate {
+  0% {
+    transform: scale(1);
+    text-shadow: none;
+    filter: brightness(1);
+  }
+  35% {
+    transform: scale(1.12);
+    text-shadow: 0 0 18px rgba(245, 158, 11, 0.55);
+    filter: brightness(1.15);
+  }
+  70% {
+    transform: scale(0.98);
+    text-shadow: 0 0 10px rgba(245, 158, 11, 0.28);
+    filter: brightness(1.05);
+  }
+  100% {
+    transform: scale(1);
+    text-shadow: none;
+    filter: brightness(1);
+  }
+}
+
+.exact-correct-celebrate {
+  animation: exact-correct-celebrate 400ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+/* Round start: keyword card fades / slides in once */
+@keyframes round-enter-keyword {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.round-enter-keyword {
+  animation: round-enter-keyword 320ms ease-out both;
+}
+
+/* Round start: clue cards stagger in lightly */
+@keyframes round-enter-card {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.round-enter-card {
+  animation: round-enter-card 280ms ease-out both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+/* Clue submit: own card briefly locks in */
+@keyframes clue-lock-in {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.clue-lock-in {
+  animation: clue-lock-in 320ms ease-out;
+}
+
+/* Hide / unhide: tween opacity + strike instead of snapping */
+.clue-card-chrome {
+  transition:
+    opacity 220ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease,
+    transform 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.clue-word-hideable {
+  text-decoration: line-through;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  transition:
+    opacity 220ms ease,
+    text-decoration-color 220ms ease;
+}
+
+.clue-word-hideable.is-hidden {
+  opacity: 0.4;
+  text-decoration-color: currentColor;
+}
+
+/* READY / NEXT KEYWORD: brief green success pulse (one-shot) */
+@keyframes btn-success-pulse {
+  0% {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+    filter: brightness(1);
+  }
+  40% {
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.45), 0 0 22px rgba(16, 185, 129, 0.35);
+    filter: brightness(1.08);
+  }
+  100% {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+    filter: brightness(1);
+  }
+}
+
+.btn-success-pulse {
+  animation: btn-success-pulse 380ms ease-out;
+}
+
+/* Player join: soft fade-in of a new PLAYERS row */
+@keyframes player-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.player-row-enter {
+  animation: player-row-enter 320ms ease-out both;
+}
+
+/* Victory panel fade (replaces undefined animate-fade-in) */
+@keyframes panel-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: panel-fade-in 280ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot,
+  .exact-correct-celebrate,
+  .round-enter-keyword,
+  .round-enter-card,
+  .clue-lock-in,
+  .btn-success-pulse,
+  .player-row-enter,
+  .animate-fade-in,
+  .clue-form-bonk-shake,
+  .clue-card-bonk-shake,
+  .guess-countdown--urgent {
+    animation: none !important;
+  }
+
+  .clue-card-chrome,
+  .clue-word-hideable {
+    transition: none !important;
+  }
+
+  .round-enter-card {
+    animation-delay: 0ms !important;
+  }
 }
