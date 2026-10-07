@@ -64,6 +64,7 @@ const getInitialUsername = () => {
 
 const CLIENT_ID = getPersistentClientId();
 const CLUE_GLOW_MS = 1000;
+const TYPING_IDLE_MS = 1000;
 const WIN_PHRASES = [
   'NAILED IT!',
   'BIG BRAIN!',
@@ -90,7 +91,7 @@ export default function GameRoom() {
   const [myUsername, setMyUsername] = useState(getInitialUsername);
   const [tempName, setTempName] = useState(myUsername);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [onlinePlayers, setOnlinePlayers] = useState([]); // [{ key, username }]
+  const [onlinePlayers, setOnlinePlayers] = useState([]); // [{ key, username, isTyping }]
 
   // Start Game & Game State
   const [hasClickedStart, setHasClickedStart] = useState(false);
@@ -205,6 +206,51 @@ export default function GameRoom() {
 
   const channelRef = useRef(null);
   const editInputRef = useRef(null);
+  const myUsernameRef = useRef(myUsername);
+  myUsernameRef.current = myUsername;
+  const isTypingRef = useRef(false);
+  const typingIdleTimerRef = useRef(null);
+
+  const trackPresence = ({ username, isTyping } = {}) => {
+    if (!channelRef.current) return;
+    const nextUsername = username ?? myUsernameRef.current;
+    const nextTyping =
+      isTyping !== undefined ? Boolean(isTyping) : isTypingRef.current;
+    isTypingRef.current = nextTyping;
+    channelRef.current.track({
+      username: nextUsername,
+      isTyping: nextTyping,
+    });
+  };
+
+  const clearTyping = () => {
+    window.clearTimeout(typingIdleTimerRef.current);
+    typingIdleTimerRef.current = null;
+    if (!isTypingRef.current) return;
+    trackPresence({ isTyping: false });
+  };
+
+  const signalTyping = () => {
+    window.clearTimeout(typingIdleTimerRef.current);
+    if (!isTypingRef.current) {
+      trackPresence({ isTyping: true });
+    }
+    typingIdleTimerRef.current = window.setTimeout(() => {
+      clearTyping();
+    }, TYPING_IDLE_MS);
+  };
+
+  // Drop typing when leaving setup / clue phases (or any status change).
+  useEffect(() => {
+    clearTyping();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameStatus]);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(typingIdleTimerRef.current);
+    };
+  }, []);
 
   // 1. Ticking Timer: Starts when game_status transitions to 'guesser_turn'
   useEffect(() => {
@@ -359,6 +405,7 @@ export default function GameRoom() {
           players.push({
             key, // CLIENT_ID
             username: presences[0].username || 'Anonymous',
+            isTyping: Boolean(presences[0].isTyping),
           });
         }
       });
@@ -380,11 +427,18 @@ export default function GameRoom() {
 
     channel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        await channel.track({ username: myUsername });
+        isTypingRef.current = false;
+        await channel.track({
+          username: myUsernameRef.current,
+          isTyping: false,
+        });
       }
     });
 
     return () => {
+      window.clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+      isTypingRef.current = false;
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
@@ -614,9 +668,7 @@ export default function GameRoom() {
     setMyUsername(trimmed);
 
     // Update Supabase Realtime Presence tracking
-    if (channelRef.current) {
-      await channelRef.current.track({ username: trimmed });
-    }
+    trackPresence({ username: trimmed });
 
     setIsEditingName(false);
   };
@@ -648,6 +700,11 @@ export default function GameRoom() {
   const updateNewWord = (value) => {
     setNewWord(value);
     if (keywordError) setKeywordError('');
+    // Keyword typing is setup-only (lobby / between-round game_over).
+    const inSetup = gameStatus === 'lobby' || gameStatus === 'game_over';
+    if (!inSetup) return;
+    if (value) signalTyping();
+    else clearTyping();
   };
 
   const handleAddWord = async (e) => {
@@ -666,6 +723,7 @@ export default function GameRoom() {
       return;
     }
     setKeywordError('');
+    clearTyping();
 
     // Store word as an object with author details
     const newEntry = {
@@ -716,6 +774,8 @@ export default function GameRoom() {
     e.preventDefault();
     const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
+
+    clearTyping();
 
     const newClueEntry = {
       clue: trimmed,
@@ -1280,7 +1340,12 @@ export default function GameRoom() {
                       <input
                         type="text"
                         value={myClueInput}
-                        onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        onChange={(e) => {
+                          const next = e.target.value.replace(/\s+/g, '').toUpperCase();
+                          setMyClueInput(next);
+                          if (next) signalTyping();
+                          else clearTyping();
+                        }}
                         placeholder="Enter a clue for the keyword"
                         className="flex-1 min-w-0 text-center bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-lg text-sky-400 font-extrabold placeholder:text-slate-500 placeholder:font-normal focus:outline-none focus:border-sky-400 transition-colors"
                       />
@@ -1464,20 +1529,36 @@ export default function GameRoom() {
                             setIsEditingName(true);
                           }
                         }}
-                        className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between transition-all ${isMe
+                        className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between gap-2 transition-all ${isMe
                           ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer hover:border-amber-400/80'
                           : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
                           }`}
                       >
-                        <span className="truncate">
+                        <span
+                          className="truncate min-w-0"
+                          title={`${playerObj.username}${isMe ? ' (You)' : ''}`}
+                        >
                           {playerObj.username} {isMe && '(You)'}
                         </span>
 
-                        {isGuesserPlayer && (
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
-                            Guesser
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {playerObj.isTyping && (
+                            <span
+                              className="typing-indicator"
+                              aria-label="typing"
+                              title="Typing"
+                            >
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                            </span>
+                          )}
+                          {isGuesserPlayer && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
+                              Guesser
+                            </span>
+                          )}
+                        </span>
                       </div>
                     )}
                   </div>
