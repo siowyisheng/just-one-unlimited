@@ -125,6 +125,15 @@ const getInitialUsername = () => {
   return newName;
 };
 
+// Earliest join → latest join; tie-break by stable presence key (CLIENT_ID).
+const sortPlayersByJoinOrder = (players) =>
+  [...players].sort((a, b) => {
+    const aJoin = Number.isFinite(a.joinedAt) ? a.joinedAt : Number.POSITIVE_INFINITY;
+    const bJoin = Number.isFinite(b.joinedAt) ? b.joinedAt : Number.POSITIVE_INFINITY;
+    if (aJoin !== bJoin) return aJoin - bJoin;
+    return String(a.key).localeCompare(String(b.key));
+  });
+
 const CLIENT_ID = getPersistentClientId();
 const CLUE_GLOW_MS = 1000;
 const TYPING_IDLE_MS = 1000;
@@ -154,7 +163,7 @@ export default function GameRoom() {
   const [myUsername, setMyUsername] = useState(getInitialUsername);
   const [tempName, setTempName] = useState(myUsername);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [onlinePlayers, setOnlinePlayers] = useState([]); // [{ key, username, isTyping }]
+  const [onlinePlayers, setOnlinePlayers] = useState([]); // [{ key, username, isTyping, joinedAt }]
 
   // Start Game & Game State
   const [hasClickedStart, setHasClickedStart] = useState(false);
@@ -273,6 +282,8 @@ export default function GameRoom() {
   const editInputRef = useRef(null);
   const myUsernameRef = useRef(myUsername);
   myUsernameRef.current = myUsername;
+  // Set once per channel subscribe; preserved across username re-track().
+  const joinedAtRef = useRef(null);
   const isTypingRef = useRef(false);
   const typingIdleTimerRef = useRef(null);
   const wordListRef = useRef(wordList);
@@ -516,6 +527,7 @@ export default function GameRoom() {
 
     // Presence listener — roster only. Typing is merged from local/broadcast state
     // so a presence sync does not wipe indicators or require re-track().
+    // Order is earliest joinedAt → latest (not Object.keys order).
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
 
@@ -527,10 +539,24 @@ export default function GameRoom() {
           const presences = state[key];
           if (presences && presences.length > 0) {
             // Prefer the latest meta if multiple exist (e.g. username re-track).
-            const meta = presences[presences.length - 1];
+            // Prefer a meta that still carries joinedAt so a bad re-track cannot
+            // wipe join order for peers mid-session.
+            let meta = presences[presences.length - 1];
+            for (let i = presences.length - 1; i >= 0; i--) {
+              if (Number.isFinite(Number(presences[i]?.joinedAt))) {
+                meta = {
+                  ...presences[i],
+                  ...presences[presences.length - 1],
+                  joinedAt: Number(presences[i].joinedAt),
+                };
+                break;
+              }
+            }
+            const joinedAtRaw = Number(meta.joinedAt);
             players.push({
               key, // CLIENT_ID
               username: meta.username || 'Anonymous',
+              joinedAt: Number.isFinite(joinedAtRaw) ? joinedAtRaw : null,
               // Keep local typing across presence sync; peers come from broadcasts.
               isTyping:
                 key === CLIENT_ID
@@ -540,7 +566,7 @@ export default function GameRoom() {
           }
         });
 
-        return players;
+        return sortPlayersByJoinOrder(players);
       });
     });
 
@@ -568,8 +594,12 @@ export default function GameRoom() {
     channel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
         isTypingRef.current = false;
+        if (joinedAtRef.current == null) {
+          joinedAtRef.current = Date.now();
+        }
         await channel.track({
           username: myUsernameRef.current,
+          joinedAt: joinedAtRef.current,
         });
       }
     });
@@ -578,6 +608,7 @@ export default function GameRoom() {
       window.clearTimeout(typingIdleTimerRef.current);
       typingIdleTimerRef.current = null;
       isTypingRef.current = false;
+      joinedAtRef.current = null;
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
@@ -802,9 +833,15 @@ export default function GameRoom() {
     localStorage.setItem('just_one_username', trimmed);
     setMyUsername(trimmed);
 
-    // Update Supabase Realtime Presence tracking (username only — not typing)
+    // Re-track username but keep the original joinedAt (do not reset join order).
     if (channelRef.current) {
-      await channelRef.current.track({ username: trimmed });
+      if (joinedAtRef.current == null) {
+        joinedAtRef.current = Date.now();
+      }
+      await channelRef.current.track({
+        username: trimmed,
+        joinedAt: joinedAtRef.current,
+      });
     }
 
     setIsEditingName(false);
