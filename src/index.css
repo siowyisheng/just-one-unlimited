@@ -314,6 +314,18 @@ code {
   animation: clue-card-bonk-shake 0.5s ease-in-out;
 }
 
+/* Must beat .round-enter-card's animation when both classes are present
+   (stagger enter used to permanently override bonk / lock-in). */
+.clue-card-chrome.clue-card-bonk-shake {
+  animation: clue-card-bonk-shake 0.5s ease-in-out;
+  /* Drop transform transition so it doesn't dampen the shake keyframes. */
+  transition:
+    opacity 220ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
 /* ── Party-game polish animations (local CSS only) ── */
 
 /* Exact-correct victory: one springy scale + soft amber flash on keyword / win phrase */
@@ -392,6 +404,15 @@ code {
 
 .clue-lock-in {
   animation: clue-lock-in 320ms ease-out;
+}
+
+.clue-card-chrome.clue-lock-in {
+  animation: clue-lock-in 320ms ease-out;
+  transition:
+    opacity 220ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 /* Hide / unhide: tween opacity + strike instead of snapping */

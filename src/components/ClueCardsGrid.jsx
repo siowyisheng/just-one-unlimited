@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 /** Same placeholder the guesser sees for peers' submitted clues during clue-giving. */
 export const MASKED_CLUE_PLACEHOLDER = '******';
@@ -59,6 +59,9 @@ export default function ClueCardsGrid({
   staggerEnter = false,
 }) {
   const ownEntryInputRef = useRef(null);
+  // Round-enter class must be one-shot: leaving it on permanently lets
+  // `.round-enter-card { animation: ... }` override bonk / lock-in.
+  const [enterActive, setEnterActive] = useState(Boolean(staggerEnter));
 
   const canTakeBack =
     Boolean(takeBackPlayerKey) && typeof onTakeBack === 'function';
@@ -87,6 +90,17 @@ export default function ClueCardsGrid({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [showOwnEntry]);
+
+  useEffect(() => {
+    if (!staggerEnter) {
+      setEnterActive(false);
+      return undefined;
+    }
+    setEnterActive(true);
+    // Longest stagger (~40ms * n) + 280ms enter; clear with buffer.
+    const timer = window.setTimeout(() => setEnterActive(false), 700);
+    return () => window.clearTimeout(timer);
+  }, [staggerEnter]);
 
   if (!Array.isArray(clues) || clues.length === 0) return null;
 
@@ -179,12 +193,16 @@ export default function ClueCardsGrid({
                     ? `${submittedChrome} cursor-pointer hover:border-slate-500`
                     : `${submittedChrome} ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
-        const enterClass = staggerEnter ? ' round-enter-card' : '';
+        // Prefer bonk / lock-in over a still-running enter animation.
+        const enterClass =
+          enterActive && !isCardBonking && !isLockingIn
+            ? ' round-enter-card'
+            : '';
         const cardClass = `clue-card-chrome p-3.5 rounded-xl text-center border select-none relative ${baseChrome}${
           isCardBonking ? ' clue-card-bonk-shake' : ''
         }${isLockingIn ? ' clue-lock-in' : ''}${enterClass}`;
 
-        const enterStyle = staggerEnter
+        const enterStyle = enterActive
           ? { '--enter-delay': `${idx * 40}ms` }
           : undefined;
 
