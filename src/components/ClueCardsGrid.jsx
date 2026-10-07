@@ -6,10 +6,10 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
 /**
  * Shared clue cards grid used by the filter review phase, end-of-round
  * results (victory / loss), and the clue-giving waiting view.
+ * Matches filter styling for hidden & duplicate clues.
  *
- * Hidden clues (manual invalid or exact-duplicate auto-hide) use the same
- * masked `******` treatment as guesser-facing submitted cards — not
- * strikethrough / faded filter chrome.
+ * Guesser-masked `******` cards use the same faded / strikethrough visual
+ * treatment as hidden filter clues (real text stays visible for hides).
  *
  * Set `waitingDisplay` during clue-giving so empty / masked text
  * (`''`, `******`) is not treated as duplicates or hideable, and so slots
@@ -126,6 +126,9 @@ export default function ClueCardsGrid({
         const isManuallyHidden =
           !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
         const isInvisible = isExactDup || isManuallyHidden;
+        // Guesser-masked submitted cards share hidden-clue visual treatment.
+        const isMaskedPlaceholder = displayClue === MASKED_CLUE_PLACEHOLDER;
+        const showHiddenVisual = isInvisible || isMaskedPlaceholder;
         const canToggle =
           interactive &&
           !waitingDisplay &&
@@ -137,25 +140,19 @@ export default function ClueCardsGrid({
         const ownChrome =
           'bg-amber-500/10 border-amber-500/30 shadow-md';
 
-        // Hidden (manual or exact-dup) match guesser-masked submitted chrome.
-        const submittedChrome = 'bg-slate-700/70 border-slate-600/80 shadow-md';
-        const baseChrome = isInvisible
-          ? `${submittedChrome} ${
-              canToggle
-                ? 'hover:border-sky-400/60 cursor-pointer'
-                : interactive && isExactDup
-                  ? 'cursor-not-allowed'
-                  : 'cursor-default'
-            }`
-          : isTakeBackCard
-            ? `${ownChrome} hover:border-rose-400/70 cursor-pointer`
-            : isOwnEntryCard
-              ? `${ownChrome} cursor-text hover:border-amber-400/80`
-              : isOwnCard && waitingDisplay
-                ? `${ownChrome} cursor-default`
-                : isBonkCard
-                  ? `${submittedChrome} cursor-pointer hover:border-slate-500`
-                  : `${submittedChrome} ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
+        const baseChrome = isExactDup
+          ? `opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
+          : isManuallyHidden || isMaskedPlaceholder
+            ? `opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] ${canToggle ? 'cursor-pointer hover:border-sky-400/40' : 'cursor-default'}`
+            : isTakeBackCard
+              ? `${ownChrome} hover:border-rose-400/70 cursor-pointer`
+              : isOwnEntryCard
+                ? `${ownChrome} cursor-text hover:border-amber-400/80`
+                : isOwnCard && waitingDisplay
+                  ? `${ownChrome} cursor-default`
+                  : isBonkCard
+                    ? 'bg-slate-700/70 border-slate-600/80 shadow-md cursor-pointer hover:border-slate-500'
+                    : `bg-slate-700/70 border-slate-600/80 shadow-md ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
         const cardClass = `p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${baseChrome}${
           isCardBonking ? ' clue-card-bonk-shake' : ''
@@ -212,23 +209,20 @@ export default function ClueCardsGrid({
           );
         }
 
-        const shownClue = isInvisible ? MASKED_CLUE_PLACEHOLDER : displayClue;
-
         const cardBody = (
           <>
+            {isManuallyHidden ? (
+              <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                HIDDEN
+              </span>
+            ) : null}
+
             <p
-              className={`${clueWordClass} ${
+              className={`${clueWordClass} ${showHiddenVisual ? 'line-through opacity-40' : ''} ${
                 showTyping || (waitingDisplay && !hasClueText)
                   ? 'min-h-[2rem] flex items-center justify-center'
                   : ''
               }`}
-              {...(isInvisible
-                ? {
-                    'aria-label': isExactDup
-                      ? 'Hidden duplicate clue'
-                      : 'Hidden clue',
-                  }
-                : {})}
             >
               {showTyping ? (
                 <span
@@ -241,7 +235,7 @@ export default function ClueCardsGrid({
                   <span className="typing-dot" />
                 </span>
               ) : (
-                shownClue
+                displayClue
               )}
             </p>
             {byline}
