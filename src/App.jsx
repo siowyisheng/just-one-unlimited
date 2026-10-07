@@ -1528,9 +1528,17 @@ export default function GameRoom() {
   // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word).
   // Concurrent clicks across clients are serialized in startNextRound via CAS
   // on current_word text + append-once dedupe into board_state.
-  // Clue givers only — guesser must not advance/retire keywords.
+  // Clue givers always; guesser only on timeout / zero-visible-clue round losses.
   const handleNextWord = async () => {
-    if (!sessionId || isGuesser || advancingRoundRef.current) return;
+    if (!sessionId || advancingRoundRef.current) return;
+    if (isGuesser) {
+      const guesserMayAdvance =
+        gameStatus === 'guesser_turn' &&
+        !submittedGuess &&
+        !roundWon &&
+        (roundTimedOut || !hasVisibleGuessClues());
+      if (!guesserMayAdvance) return;
+    }
     advancingRoundRef.current = true;
 
     const playedText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
@@ -1882,17 +1890,17 @@ export default function GameRoom() {
                   getPlayerName={getPlayerName}
                   clueWordClass={clueWordClass}
                 />
-                {!isGuesser && (
-                  <button
-                    onClick={handleNextWord}
-                    className="mt-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
-                  >
-                    <span>NEXT KEYWORD</span>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                )}
+                {/* Timeout / zero-clue loss: guesser and clue givers both see NEXT KEYWORD */}
+                <button
+                  type="button"
+                  onClick={handleNextWord}
+                  className="mt-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm flex items-center gap-2"
+                >
+                  <span>NEXT KEYWORD</span>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
               </div>
             </div>
           )}
