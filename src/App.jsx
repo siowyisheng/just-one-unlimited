@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabaseClient';
+import {
+  supabase,
+  measureServerTimeOffset,
+  getServerNowMs,
+  getServerNowIso,
+} from './supabaseClient';
 
 import WordSubmissionWidget from './components/WordSubmissionWidget';
 import ClueCardsGrid from './components/ClueCardsGrid';
@@ -153,6 +158,18 @@ const LOSS_PHRASES = [
   'BIG WHIFF!',
 ];
 
+// Guessing-phase hard limit: UI counts 30→0; authoritative loss at 31s (1s leeway).
+const GUESS_COUNTDOWN_SECONDS = 30;
+const GUESS_TIMEOUT_SECONDS = 31;
+
+const guesserTurnStartedAtOf = (word) =>
+  typeof word === 'object' && word && typeof word.guesserTurnStartedAt === 'string'
+    ? word.guesserTurnStartedAt
+    : null;
+
+const isGuessRoundTimedOut = (word) =>
+  Boolean(typeof word === 'object' && word && word.timedOut);
+
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
   const [wordList, setWordList] = useState([]);
@@ -222,9 +239,11 @@ export default function GameRoom() {
   const flashClearTokenRef = useRef(0);
 
   // Timer State
-  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [guessCountdownSeconds, setGuessCountdownSeconds] = useState(GUESS_COUNTDOWN_SECONDS);
+  const [guessCountdownProgress, setGuessCountdownProgress] = useState(1);
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
-  const roundStartTimeRef = useRef(null);
+  const guessTimeoutInFlightRef = useRef(false);
+  const fireGuessTimeoutRef = useRef(null);
 
   // Animated Dots State for "STARTING SOON..."
   const [animatedDots, setAnimatedDots] = useState('.');
@@ -295,8 +314,21 @@ export default function GameRoom() {
   onlinePlayersRef.current = onlinePlayers;
   const gameStatusRef = useRef(gameStatus);
   gameStatusRef.current = gameStatus;
+  const currentWordRef = useRef(currentWord);
+  currentWordRef.current = currentWord;
+  const submittedGuessRef = useRef(submittedGuess);
+  submittedGuessRef.current = submittedGuess;
+  const roundWonRef = useRef(roundWon);
+  roundWonRef.current = roundWon;
+  const submittedCluesRef = useRef(submittedClues);
+  submittedCluesRef.current = submittedClues;
   const startNextRoundRef = useRef(null);
   const startRoundInFlightRef = useRef(false);
+
+  // Align local clocks to Supabase REST Date so guess deadlines stay in sync.
+  useEffect(() => {
+    measureServerTimeOffset();
+  }, []);
 
   // Existing rule: start once >=2 distinct start clicks. Only one client
   // (lexicographically first requester) writes the round to avoid racing picks.
@@ -370,32 +402,120 @@ export default function GameRoom() {
     };
   }, []);
 
-  // 1. Ticking Timer: Starts when game_status transitions to 'guesser_turn'
-  useEffect(() => {
-    let interval = null;
-    if (gameStatus === 'guesser_turn' && !roundWon) {
-      if (!roundStartTimeRef.current) {
-        roundStartTimeRef.current = Date.now();
-      }
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - roundStartTimeRef.current) / 1000);
-        setTimerSeconds(elapsed);
-      }, 1000);
-    } else if (gameStatus !== 'guesser_turn') {
-      roundStartTimeRef.current = null;
-      setTimerSeconds(0);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [gameStatus, roundWon]);
-
   // Stable identity for the active keyword (object refs change on every row sync).
   const currentWordKey = [
     String(keywordText(currentWord) ?? ''),
     typeof currentWord === 'object' && currentWord ? String(currentWord.authorId ?? '') : '',
   ].join('\0');
+
+  const guesserTurnStartedAt = guesserTurnStartedAtOf(currentWord);
+  const roundTimedOut = isGuessRoundTimedOut(currentWord);
+
+  // True while the guesser still has at least one visible clue (not give-up / wiped).
+  const hasVisibleGuessClues = () => {
+    const clues = submittedCluesRef.current;
+    const invalid = invalidCluesRef.current;
+    const exactDupes = getAutoDeduplicatedClues(clues);
+    return clues.some((c) => {
+      if (!c?.clue) return false;
+      const norm = normalizeClue(c.clue);
+      return !invalid.includes(norm) && !exactDupes.has(norm);
+    });
+  };
+
+  // Authoritative timeout: any client may write timedOut once elapsed ≥ 31s.
+  // CAS on guesser_turn + null guess + keyword text so a late guess wins cleanly.
+  const fireGuessTimeout = async () => {
+    if (!sessionId || guessTimeoutInFlightRef.current) return;
+    if (gameStatusRef.current !== 'guesser_turn') return;
+    if (submittedGuessRef.current || roundWonRef.current) return;
+    // Give-up / zero-clue loss already ended the round — leave that path alone.
+    if (!hasVisibleGuessClues()) return;
+
+    const word = currentWordRef.current;
+    if (typeof word !== 'object' || !word || word.timedOut) return;
+    if (!word.guesserTurnStartedAt) return;
+
+    const expectedText = String(keywordText(word) ?? '').trim();
+    if (!expectedText) return;
+
+    guessTimeoutInFlightRef.current = true;
+    try {
+      const { data, error } = await supabase
+        .from('game_sessions')
+        .update({
+          current_word: { ...word, timedOut: true },
+        })
+        .eq('id', sessionId)
+        .eq('game_status', 'guesser_turn')
+        .is('submitted_guess', null)
+        .eq('current_word->>text', expectedText)
+        .select('id');
+
+      if (error) {
+        console.error('Error recording guess timeout:', error);
+        return;
+      }
+      if (data?.length) {
+        setCurrentWord((prev) =>
+          typeof prev === 'object' && prev ? { ...prev, timedOut: true } : prev
+        );
+      }
+    } finally {
+      guessTimeoutInFlightRef.current = false;
+    }
+  };
+  fireGuessTimeoutRef.current = fireGuessTimeout;
+
+  // Shared countdown from current_word.guesserTurnStartedAt (set on READY).
+  // UI: 30→0. Loss write: only after GUESS_TIMEOUT_SECONDS (31).
+  useEffect(() => {
+    if (
+      gameStatus !== 'guesser_turn' ||
+      roundWon ||
+      submittedGuess ||
+      roundTimedOut
+    ) {
+      setGuessCountdownSeconds(GUESS_COUNTDOWN_SECONDS);
+      setGuessCountdownProgress(1);
+      return undefined;
+    }
+
+    if (!guesserTurnStartedAt) {
+      setGuessCountdownSeconds(GUESS_COUNTDOWN_SECONDS);
+      setGuessCountdownProgress(1);
+      return undefined;
+    }
+
+    const startedMs = Date.parse(guesserTurnStartedAt);
+    if (!Number.isFinite(startedMs)) return undefined;
+
+    const tick = () => {
+      const elapsedSec = (getServerNowMs() - startedMs) / 1000;
+      const remaining = Math.max(
+        0,
+        GUESS_COUNTDOWN_SECONDS - Math.floor(elapsedSec)
+      );
+      setGuessCountdownSeconds(remaining);
+      setGuessCountdownProgress(
+        Math.max(0, Math.min(1, 1 - elapsedSec / GUESS_COUNTDOWN_SECONDS))
+      );
+
+      if (elapsedSec >= GUESS_TIMEOUT_SECONDS && hasVisibleGuessClues()) {
+        fireGuessTimeoutRef.current?.();
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 100);
+    return () => window.clearInterval(interval);
+  }, [
+    gameStatus,
+    roundWon,
+    submittedGuess,
+    roundTimedOut,
+    guesserTurnStartedAt,
+  ]);
 
   // Ticking timer for the clue-giving phase, shown to every player.
   // Resets when the keyword changes (including SKIP KEYWORD).
@@ -667,6 +787,7 @@ export default function GameRoom() {
       setSubmittedClues(data.submitted_clues || []);
       acceptRemoteInvalidClues(data.invalid_clues || []);
       setPlayedKeywords(Array.isArray(data.board_state) ? data.board_state : []);
+      setSubmittedGuess(data.submitted_guess ?? null);
       const alreadyWon = Boolean(data.round_won);
       setRoundWon(alreadyWon);
       victorySoundPlayedRef.current = alreadyWon;
@@ -1177,14 +1298,30 @@ export default function GameRoom() {
   // Transition game phase when READY is clicked.
   // CAS on the current keyword so a concurrent SKIP KEYWORD is not overridden
   // into guesser_turn with a wiped clue list.
+  // Stamps guesserTurnStartedAt (server-aligned ISO) on current_word so every
+  // client — including late joiners — shares one countdown deadline.
   const handleConfirmCluesReady = async () => {
     if (!sessionId) return;
     const expectedText = String(keywordText(currentWord) ?? '').trim();
     if (!expectedText) return;
 
+    await measureServerTimeOffset();
+    const baseWord =
+      typeof currentWord === 'object' && currentWord
+        ? currentWord
+        : { text: currentWord };
+
     await supabase
       .from('game_sessions')
-      .update({ game_status: 'guesser_turn' })
+      .update({
+        game_status: 'guesser_turn',
+        current_word: {
+          ...baseWord,
+          text: expectedText,
+          guesserTurnStartedAt: getServerNowIso(),
+          timedOut: false,
+        },
+      })
       .eq('id', sessionId)
       .eq('game_status', 'in_round')
       .eq('current_word->>text', expectedText);
@@ -1228,21 +1365,38 @@ export default function GameRoom() {
     e.preventDefault();
     const trimmed = guessInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
+    if (isGuessRoundTimedOut(currentWord)) return;
 
     const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
     const isMatch = trimmed.toLowerCase() === String(keyWordText ?? '').toLowerCase();
 
+    // Optimistic local stop so the 31s timeout cannot blank the results panel
+    // while the realtime echo is in flight.
+    setSubmittedGuess(trimmed);
+    submittedGuessRef.current = trimmed;
+
     // 1. Update database for ALL players to receive
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('game_sessions')
       .update({
         submitted_guess: trimmed,
         round_won: isMatch,
       })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('game_status', 'guesser_turn')
+      .is('submitted_guess', null)
+      .select('id');
 
     if (error) {
       console.error('Error submitting guess:', error);
+      setSubmittedGuess(null);
+      submittedGuessRef.current = null;
+      return;
+    }
+    // Lost the race to timeout (or a duplicate submit) — resync from realtime.
+    if (!data?.length) {
+      setSubmittedGuess(null);
+      submittedGuessRef.current = null;
       return;
     }
 
@@ -1465,7 +1619,11 @@ export default function GameRoom() {
   const pastKeywordPercent = pastKeywords.length === 0
     ? 0
     : Math.round((pastKeywordCorrect / pastKeywords.length) * 100);
-  const roundLost = gameStatus === 'guesser_turn' && visibleClues.length === 0;
+  const roundLost =
+    gameStatus === 'guesser_turn' &&
+    !submittedGuess &&
+    !roundWon &&
+    (visibleClues.length === 0 || roundTimedOut);
 
   useEffect(() => {
     if (!roundLost) lossPhraseRef.current = null;
@@ -1478,6 +1636,7 @@ export default function GameRoom() {
   }, [roundLost, gameStatus, submittedGuess]);
 
   const currentLossPhrase = () => {
+    if (roundTimedOut) return 'OUT OF TIME!';
     if (!lossPhraseRef.current) {
       lossPhraseRef.current = LOSS_PHRASES[Math.floor(Math.random() * LOSS_PHRASES.length)];
     }
@@ -1551,19 +1710,37 @@ export default function GameRoom() {
           )}
 
           {/* GUESSER TURN PHASE */}
-          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (
+          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (!roundTimedOut || submittedGuess) && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative">
 
               {/* Timer & Phase Header */}
-              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+              <div className="flex items-center justify-between border-b border-slate-700 pb-4 gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
                     Guessing Phase
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
-                  ⏱️ {timerSeconds}s
+                <div
+                  className={`guess-countdown ${guessCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${guessCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
+                  role="timer"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  aria-label={`${guessCountdownSeconds} seconds remaining`}
+                >
+                  <svg className="guess-countdown__ring" viewBox="0 0 36 36" aria-hidden="true">
+                    <circle className="guess-countdown__track" cx="18" cy="18" r="15.5" />
+                    <circle
+                      className="guess-countdown__progress"
+                      cx="18"
+                      cy="18"
+                      r="15.5"
+                      style={{
+                        strokeDasharray: `${guessCountdownProgress * 97.4} 97.4`,
+                      }}
+                    />
+                  </svg>
+                  <span className="guess-countdown__value">{guessCountdownSeconds}</span>
                 </div>
               </div>
 
