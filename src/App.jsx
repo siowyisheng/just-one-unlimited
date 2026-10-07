@@ -2577,6 +2577,9 @@ export default function GameRoom() {
                             : 'READY'}
                         </button>
                       </div>
+
+                      {/* Same shared Clue rules expander as Give a Clue — below READY */}
+                      <ClueRulesExpander />
                     </>
                   )}
                 </div>
