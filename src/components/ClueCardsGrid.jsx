@@ -109,16 +109,28 @@ export default function ClueCardsGrid({
     return () => window.clearTimeout(timer);
   }, [staggerEnter, clues]);
 
-  // Submit lock-in: drop that slot from entering so lock-in end cannot re-slide.
-  useEffect(() => {
-    if (!lockInPlayerKey) return;
+  // Drop a slot from the enter set so removing another animation class cannot
+  // restore `.round-enter-card` and restart slide-in (lock-in end / bonk end).
+  const dropEnteringKey = (playerKey) => {
+    if (!playerKey) return;
     setEnteringKeys((prev) => {
-      if (!prev.has(lockInPlayerKey)) return prev;
+      if (!prev.has(playerKey)) return prev;
       const next = new Set(prev);
-      next.delete(lockInPlayerKey);
+      next.delete(playerKey);
       return next;
     });
+  };
+
+  useEffect(() => {
+    dropEnteringKey(lockInPlayerKey);
   }, [lockInPlayerKey]);
+
+  // Bonk: while shake wins via CSS specificity, `.round-enter-card` may still be
+  // on the node. When shake is removed, that animation property returns and
+  // restarts slide-in — consume enter as soon as bonk starts.
+  useEffect(() => {
+    dropEnteringKey(bonkingPlayerKey);
+  }, [bonkingPlayerKey]);
 
   if (!Array.isArray(clues) || clues.length === 0) return null;
 
@@ -218,8 +230,10 @@ export default function ClueCardsGrid({
                     : `${submittedChrome} ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
         // Enter only while this slot is in the one-shot set (round start).
-        // Bonk/lock-in CSS specificity wins if both classes briefly overlap.
-        const showEnter = enteringKeys.has(slotKey);
+        // Never combine with bonk/lock-in — overlapping animation properties
+        // restart slide-in when shake/lock-in class is removed.
+        const showEnter =
+          enteringKeys.has(slotKey) && !isCardBonking && !isLockingIn;
         const enterClass = showEnter ? ' round-enter-card' : '';
         const cardClass = `clue-card-chrome p-3.5 rounded-xl text-center border select-none relative ${baseChrome}${
           isCardBonking ? ' clue-card-bonk-shake' : ''
