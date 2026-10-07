@@ -1434,9 +1434,9 @@ export default function GameRoom() {
     }
   };
 
-  // 5. Handle "CLOSE ENOUGH" Override Action
+  // 5. Handle "CLOSE ENOUGH" Override Action (clue givers only — conflict of interest for guesser)
   const handleCloseEnough = async () => {
-    if (!sessionId) return;
+    if (!sessionId || isGuesser) return;
     setRoundWon(true);
     if (!victorySoundPlayedRef.current) {
       victorySoundPlayedRef.current = true;
@@ -1452,8 +1452,9 @@ export default function GameRoom() {
   // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word).
   // Concurrent clicks across clients are serialized in startNextRound via CAS
   // on current_word text + append-once dedupe into board_state.
+  // Clue givers only — guesser must not advance/retire keywords.
   const handleNextWord = async () => {
-    if (!sessionId || advancingRoundRef.current) return;
+    if (!sessionId || isGuesser || advancingRoundRef.current) return;
     advancingRoundRef.current = true;
 
     const playedText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
@@ -1744,15 +1745,17 @@ export default function GameRoom() {
                   getPlayerName={getPlayerName}
                   clueWordClass={clueWordClass}
                 />
-                <button
-                  onClick={handleNextWord}
-                  className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
-                >
-                  <span>NEXT KEYWORD</span>
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                  </svg>
-                </button>
+                {!isGuesser && (
+                  <button
+                    onClick={handleNextWord}
+                    className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                  >
+                    <span>NEXT KEYWORD</span>
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1894,15 +1897,17 @@ export default function GameRoom() {
                         clueWordClass={clueWordClass}
                       />
 
-                      <button
-                        onClick={handleNextWord}
-                        className="mt-4 px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
-                      >
-                        <span>NEXT KEYWORD</span>
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                        </svg>
-                      </button>
+                      {!isGuesser && (
+                        <button
+                          onClick={handleNextWord}
+                          className="mt-4 px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                        >
+                          <span>NEXT KEYWORD</span>
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   ) : (
                     /* CASE 2: INCORRECT GUESS STATE */
@@ -1928,27 +1933,29 @@ export default function GameRoom() {
                         clueWordClass={clueWordClass}
                       />
 
-                      <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full">
-                        <button
-                          onClick={handleCloseEnough}
-                          className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>CLOSE ENOUGH</span>
-                        </button>
+                      {!isGuesser && (
+                        <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full">
+                          <button
+                            onClick={handleCloseEnough}
+                            className="flex-1 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>CLOSE ENOUGH</span>
+                          </button>
 
-                        <button
-                          onClick={handleNextWord}
-                          className="flex-1 px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <span>NEXT KEYWORD</span>
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
+                          <button
+                            onClick={handleNextWord}
+                            className="flex-1 px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <span>NEXT KEYWORD</span>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
