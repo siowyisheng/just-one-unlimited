@@ -120,6 +120,7 @@ export default function GameRoom() {
   const [guessInput, setGuessInput] = useState('');
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
+  const [showGiveUpConfirm, setShowGiveUpConfirm] = useState(false);
   const winPhraseRef = useRef(null);
   // True after the victory sound has played for the current win. Later saves
   // that still carry the old win flag must not play it again.
@@ -1052,6 +1053,18 @@ export default function GameRoom() {
   const hasSubmittedMyClue = submittedClues.some((c) => c.playerKey === CLIENT_ID);
   const allCluesSubmitted = submittedClues.length >= numClueGivers && numClueGivers > 0;
 
+  // Guesser give-up: mark every clue invisible so the existing zero-clue
+  // roundLost path runs for all clients (same loss UI, no new column).
+  const handleConfirmGiveUp = () => {
+    if (!sessionId || !isGuesser) return;
+    const allNorms = submittedClues
+      .map((c) => (c?.clue ? normalizeClue(c.clue) : null))
+      .filter(Boolean);
+    const next = [...new Set([...invalidCluesRef.current, ...allNorms])];
+    persistInvalidClues(next);
+    setShowGiveUpConfirm(false);
+  };
+
   // Auto-flag exact duplicate clues as invisible when all clues arrive
   useEffect(() => {
     if (
@@ -1096,6 +1109,12 @@ export default function GameRoom() {
   useEffect(() => {
     if (!roundLost) lossPhraseRef.current = null;
   }, [roundLost]);
+
+  useEffect(() => {
+    if (roundLost || gameStatus !== 'guesser_turn' || submittedGuess) {
+      setShowGiveUpConfirm(false);
+    }
+  }, [roundLost, gameStatus, submittedGuess]);
 
   const currentLossPhrase = () => {
     if (!lossPhraseRef.current) {
@@ -1185,21 +1204,30 @@ export default function GameRoom() {
 
                   {/* Guesser Input Form (Only visible to the Guesser) */}
                   {isGuesser && (
-                    <form onSubmit={handleGuessSubmit} className="flex w-full">
-                      <input
-                        type="text"
-                        value={guessInput}
-                        onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                        aria-label="Guess keyword"
-                        className={`flex-1 min-w-0 text-center bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
-                      />
+                    <div className="flex flex-col gap-3 w-full">
+                      <form onSubmit={handleGuessSubmit} className="flex w-full">
+                        <input
+                          type="text"
+                          value={guessInput}
+                          onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                          aria-label="Guess keyword"
+                          className={`flex-1 min-w-0 text-center bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
+                        />
+                        <button
+                          type="submit"
+                          className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
+                        >
+                          GUESS KEYWORD
+                        </button>
+                      </form>
                       <button
-                        type="submit"
-                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
+                        type="button"
+                        onClick={() => setShowGiveUpConfirm(true)}
+                        className="self-center px-4 py-2 text-sm font-semibold text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors cursor-pointer"
                       >
-                        GUESS KEYWORD
+                        Give up
                       </button>
-                    </form>
+                    </div>
                   )}
 
                   {/* Visible Clues Grid (Shown to BOTH Guesser and Clue Givers) */}
@@ -1662,6 +1690,45 @@ export default function GameRoom() {
       >
         based on Just One designed by Ludovic Roudy & Bruno Sautter
       </a>
+
+      {showGiveUpConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+          role="presentation"
+          onClick={() => setShowGiveUpConfirm(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="give-up-title"
+            className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="give-up-title" className="text-xl font-bold text-slate-100">
+              Give up this round?
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              The round ends as a loss. The keyword will be revealed.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowGiveUpConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmGiveUp}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-600 hover:bg-slate-500 text-slate-200 font-semibold border border-slate-500 transition-colors cursor-pointer"
+              >
+                Give up
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
