@@ -35,6 +35,10 @@ const playVictorySound = () => {
   }
 };
 
+const normalizeKeyword = (value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
+
+const keywordText = (item) => (typeof item === 'object' && item !== null ? item.text : item);
+
 const generateRandomUsername = () => {
   const randomId = Math.floor(1000 + Math.random() * 9000);
   return `Player_${randomId}`;
@@ -59,11 +63,27 @@ const getInitialUsername = () => {
 };
 
 const CLIENT_ID = getPersistentClientId();
+const CLUE_GLOW_MS = 1000;
+const WIN_PHRASES = [
+  'NAILED IT!',
+  'BIG BRAIN!',
+  'TOO EASY!',
+  'CHEF\'S KISS!',
+  'CRUSHED IT!',
+];
+const LOSS_PHRASES = [
+  'OOF!',
+  'NOT TODAY!',
+  'SWING AND A MISS!',
+  'TOUGH BREAK!',
+  'BIG WHIFF!',
+];
 
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
   const [wordList, setWordList] = useState([]);
   const [newWord, setNewWord] = useState('');
+  const [keywordError, setKeywordError] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Username & Presence State
@@ -80,24 +100,58 @@ export default function GameRoom() {
   const [currentWord, setCurrentWord] = useState(null);
   const [submittedClues, setSubmittedClues] = useState([]);
   const [myClueInput, setMyClueInput] = useState('');
+  // Past keywords for this session. Stored in board_state as { text, correct }.
+  const [playedKeywords, setPlayedKeywords] = useState([]);
+  const advancingRoundRef = useRef(false);
 
   // Tracks clues marked invisible (e.g. ['apple', 'fruit'])
   const [invalidClues, setInvalidClues] = useState([]);
+  // Latest list, including clicks that have not been saved yet. Rapid clicks
+  // read this so they do not all toggle the same stale snapshot.
+  const invalidCluesRef = useRef([]);
+  // Lists this client has already moved past. A late save of one of these
+  // must not flip the card back.
+  const supersededInvalidRef = useRef(new Set());
+  const invalidWriteTailRef = useRef(Promise.resolve());
+  const invalidWritePendingRef = useRef(false);
 
   // Guesser & Clue Interaction State
   const [guessInput, setGuessInput] = useState('');
   const [submittedGuess, setSubmittedGuess] = useState(null);
   const [roundWon, setRoundWon] = useState(false);
+  const winPhraseRef = useRef(null);
+  // True after the victory sound has played for the current win. Later saves
+  // that still carry the old win flag must not play it again.
+  const victorySoundPlayedRef = useRef(false);
+  const lossPhraseRef = useRef(null);
+
+  useEffect(() => {
+    if (!roundWon) winPhraseRef.current = null;
+  }, [roundWon]);
+
+  const currentWinPhrase = () => {
+    if (!winPhraseRef.current) {
+      winPhraseRef.current = WIN_PHRASES[Math.floor(Math.random() * WIN_PHRASES.length)];
+    }
+    return winPhraseRef.current;
+  };
 
   // Clue Glow / Flash State
   const [flashedClueText, setFlashedClueText] = useState(null);
+  // Flash ids already shown on this client. The clicker records one before the
+  // write, so the database echo does not play the glow a second time.
+  const seenFlashIdsRef = useRef(new Set());
+  const flashClearTokenRef = useRef(0);
 
   // Timer State
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
   const roundStartTimeRef = useRef(null);
 
   // Animated Dots State for "STARTING SOON..."
   const [animatedDots, setAnimatedDots] = useState('.');
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyResetRef = useRef(null);
 
   // Cycling animation effect for 1, 2, 3 periods
   useEffect(() => {
@@ -132,6 +186,7 @@ export default function GameRoom() {
   const getAutoDeduplicatedClues = (clues) => {
     const counts = {};
     clues.forEach((c) => {
+      if (!c?.clue) return;
       const norm = normalizeClue(c.clue);
       counts[norm] = (counts[norm] || 0) + 1;
     });
@@ -171,6 +226,22 @@ export default function GameRoom() {
       if (interval) clearInterval(interval);
     };
   }, [gameStatus, roundWon]);
+
+  // Ticking timer for the clue-giving phase, shown to every player
+  useEffect(() => {
+    if (gameStatus !== 'in_round') return;
+
+    const startedAt = Date.now();
+    setClueWaitSeconds(0);
+    const interval = setInterval(() => {
+      setClueWaitSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      setClueWaitSeconds(0);
+    };
+  }, [gameStatus]);
 
   useEffect(() => {
     if (isEditingName && editInputRef.current) {
@@ -220,7 +291,10 @@ export default function GameRoom() {
         if (data.current_guesser_id !== undefined) setCurrentGuesserId(data.current_guesser_id);
         if (data.current_word !== undefined) setCurrentWord(data.current_word);
         if (data.submitted_clues) setSubmittedClues(data.submitted_clues);
-        if (data.invalid_clues) setInvalidClues(data.invalid_clues);
+        if (Array.isArray(data.invalid_clues)) {
+          acceptRemoteInvalidRef.current(data.invalid_clues);
+        }
+        if (Array.isArray(data.board_state)) setPlayedKeywords(data.board_state);
 
         if (data.game_status) {
           setGameStatus(data.game_status);
@@ -232,15 +306,47 @@ export default function GameRoom() {
         }
         if (data.submitted_guess !== undefined) setSubmittedGuess(data.submitted_guess);
         if (data.round_won !== undefined) {
-          if (data.round_won) playVictorySound();
-          setRoundWon(data.round_won);
+          const won = Boolean(data.round_won);
+          if (won && !victorySoundPlayedRef.current) {
+            victorySoundPlayedRef.current = true;
+            playVictorySound();
+          }
+          if (!won) victorySoundPlayedRef.current = false;
+          setRoundWon(won);
         }
-        if (data.last_flashed_clue) {
-          setFlashedClueText(data.last_flashed_clue.clueText);
-          setTimeout(() => setFlashedClueText(null), 400); // 0.4s shine duration
+        if (data.last_flashed_clue?.clueText) {
+          const flash = data.last_flashed_clue;
+          const flashKey = flash.flashId
+            || (flash.timestamp != null ? `${flash.clueText}:${flash.timestamp}` : null);
+          // Skip the clicker's own echo and any later row update that still
+          // carries the same flash.
+          if (flashKey && seenFlashIdsRef.current.has(flashKey)) {
+            // already played
+          } else {
+            if (flashKey) seenFlashIdsRef.current.add(flashKey);
+            const token = ++flashClearTokenRef.current;
+            setFlashedClueText(flash.clueText);
+            setTimeout(() => {
+              if (flashClearTokenRef.current === token) setFlashedClueText(null);
+            }, CLUE_GLOW_MS);
+          }
         }
       }
     );
+
+    // Clue glow for everyone except the clicker, who already glowed locally.
+    channel.on('broadcast', { event: 'clue_flash' }, ({ payload }) => {
+      const clueText = payload?.clueText;
+      const flashId = payload?.flashId;
+      if (!clueText) return;
+      if (flashId && seenFlashIdsRef.current.has(flashId)) return;
+      if (flashId) seenFlashIdsRef.current.add(flashId);
+      const token = ++flashClearTokenRef.current;
+      setFlashedClueText(clueText);
+      setTimeout(() => {
+        if (flashClearTokenRef.current === token) setFlashedClueText(null);
+      }, CLUE_GLOW_MS);
+    });
 
     // Presence listener
     channel.on('presence', { event: 'sync' }, () => {
@@ -332,6 +438,11 @@ export default function GameRoom() {
       setCurrentGuesserId(data.current_guesser_id || null);
       setCurrentWord(data.current_word || null);
       setSubmittedClues(data.submitted_clues || []);
+      acceptRemoteInvalidClues(data.invalid_clues || []);
+      setPlayedKeywords(Array.isArray(data.board_state) ? data.board_state : []);
+      const alreadyWon = Boolean(data.round_won);
+      setRoundWon(alreadyWon);
+      victorySoundPlayedRef.current = alreadyWon;
       setLoading(false);
     }
   };
@@ -345,25 +456,36 @@ export default function GameRoom() {
     return count > 1;
   };
 
+  // A round can start when some online player did not write at least one keyword.
+  const roundCanStart = (words, players) => {
+    if (!words?.length || !players?.length) return false;
+    return players.some((player) =>
+      words.some((word) => typeof word === 'object' && word.authorId !== player.key)
+    );
+  };
+
   // Helper: Start Next Round Logic
   // Helper: Start Next Round Logic with Weighted Word Selection
-  const startNextRound = async (availableWords, playerList) => {
-    if (!availableWords || availableWords.length === 0) {
-      await supabase
-        .from('game_sessions')
-        .update({ game_status: 'game_over' })
-        .eq('id', sessionId);
-      return;
-    }
-
-    // 1. Fetch existing player_word_counts from database
+  const startNextRound = async (availableWords, playerList, playedEntry) => {
+    // 1. Fetch existing player_word_counts and the played-keyword history
     const { data: sessionData } = await supabase
       .from('game_sessions')
-      .select('player_word_counts')
+      .select('player_word_counts, board_state')
       .eq('id', sessionId)
       .single();
 
     const counts = sessionData?.player_word_counts || {};
+    const existingPlayed = Array.isArray(sessionData?.board_state) ? sessionData.board_state : [];
+    const nextPlayed = playedEntry ? [...existingPlayed, playedEntry] : existingPlayed;
+    if (playedEntry) setPlayedKeywords(nextPlayed);
+
+    if (!availableWords || availableWords.length === 0) {
+      await supabase
+        .from('game_sessions')
+        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
+        .eq('id', sessionId);
+      return;
+    }
 
     // 2. Find a valid guesser who has words NOT submitted by them
     let chosenGuesser = null;
@@ -387,7 +509,7 @@ export default function GameRoom() {
     if (!chosenGuesser || validWordPool.length === 0) {
       await supabase
         .from('game_sessions')
-        .update({ game_status: 'game_over' })
+        .update({ game_status: 'game_over', round_won: false, board_state: nextPlayed })
         .eq('id', sessionId);
       return;
     }
@@ -437,9 +559,51 @@ export default function GameRoom() {
         round_won: false,
         word_list: updatedWordList,
         player_word_counts: updatedCounts,
+        board_state: nextPlayed,
       })
       .eq('id', sessionId);
   };
+
+  const copySessionLink = async () => {
+    if (!sessionId) return;
+
+    const shareUrl = `${window.location.origin}${window.location.pathname}?sessionId=${sessionId}`;
+    let copied = false;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+
+    if (!copied) {
+      const textarea = document.createElement('textarea');
+      textarea.value = shareUrl;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.top = '0';
+      textarea.style.left = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    if (!copied) return;
+
+    setLinkCopied(true);
+    window.clearTimeout(copyResetRef.current);
+    copyResetRef.current = window.setTimeout(() => setLinkCopied(false), 1600);
+  };
+
+  useEffect(() => {
+    return () => window.clearTimeout(copyResetRef.current);
+  }, []);
 
   // Handler for submitting edited username
   const handleSaveUsername = async (newName) => {
@@ -481,10 +645,27 @@ export default function GameRoom() {
     }
   };
 
+  const updateNewWord = (value) => {
+    setNewWord(value);
+    if (keywordError) setKeywordError('');
+  };
+
   const handleAddWord = async (e) => {
     e.preventDefault();
-    const trimmed = newWord.trim();
+    const trimmed = normalizeKeyword(newWord);
     if (!trimmed || !sessionId) return;
+
+    const alreadyInList = wordList.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    const alreadyPlayed = playedKeywords.some((item) => normalizeKeyword(keywordText(item)) === trimmed);
+    if (alreadyInList) {
+      setKeywordError('This keyword is already in the Shared Keyword List.');
+      return;
+    }
+    if (alreadyPlayed) {
+      setKeywordError('This keyword is already a past keyword.');
+      return;
+    }
+    setKeywordError('');
 
     // Store word as an object with author details
     const newEntry = {
@@ -505,13 +686,35 @@ export default function GameRoom() {
     if (error) {
       console.error('Error adding word:', error);
       setWordList(wordList);
+      return;
+    }
+
+    if (gameStatus === 'game_over' && roundCanStart(updatedWords, onlinePlayers)) {
+      await startNextRound(updatedWords, onlinePlayers);
+    }
+  };
+
+  const handleRemoveWord = async (index) => {
+    if (!sessionId || index < 0 || index >= wordList.length) return;
+
+    const updatedWords = wordList.filter((_, i) => i !== index);
+    setWordList(updatedWords);
+
+    const { error } = await supabase
+      .from('game_sessions')
+      .update({ word_list: updatedWords })
+      .eq('id', sessionId);
+
+    if (error) {
+      console.error('Error removing word:', error);
+      setWordList(wordList);
     }
   };
 
   // Handle Giving a Clue
   const handleGiveClue = async (e) => {
     e.preventDefault();
-    const trimmed = myClueInput.trim().replace(/\s+/g, ''); // Strip all spaces
+    const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
     const newClueEntry = {
@@ -530,27 +733,76 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
+  const invalidClueSig = (list) => (Array.isArray(list) ? list.join('\u0000') : '');
+
+  // Apply a list saved by someone else. Ignore it while this client is still
+  // ahead of the database, and ignore an older list this client already left.
+  const acceptRemoteInvalidClues = (next) => {
+    const remote = Array.isArray(next) ? next : [];
+    const remoteSig = invalidClueSig(remote);
+    const localSig = invalidClueSig(invalidCluesRef.current);
+    if (remoteSig === localSig) {
+      supersededInvalidRef.current.clear();
+      invalidWritePendingRef.current = false;
+      return;
+    }
+    if (invalidWritePendingRef.current || supersededInvalidRef.current.has(remoteSig)) {
+      return;
+    }
+    supersededInvalidRef.current.clear();
+    invalidCluesRef.current = remote;
+    setInvalidClues(remote);
+  };
+  const acceptRemoteInvalidRef = useRef(acceptRemoteInvalidClues);
+  acceptRemoteInvalidRef.current = acceptRemoteInvalidClues;
+
+  // Show the new visibility immediately, then save the latest list once.
+  // Intermediate clicks are not written, so their echoes cannot flash the card.
+  const persistInvalidClues = (next) => {
+    const prevSig = invalidClueSig(invalidCluesRef.current);
+    const nextSig = invalidClueSig(next);
+    if (prevSig !== nextSig) supersededInvalidRef.current.add(prevSig);
+    invalidCluesRef.current = next;
+    setInvalidClues(next);
+    invalidWritePendingRef.current = true;
+
+    const targetSession = sessionId;
+    invalidWriteTailRef.current = invalidWriteTailRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (invalidClueSig(invalidCluesRef.current) !== nextSig) return;
+        try {
+          const { error } = await supabase
+            .from('game_sessions')
+            .update({ invalid_clues: invalidCluesRef.current })
+            .eq('id', targetSession);
+          if (invalidClueSig(invalidCluesRef.current) !== nextSig) return;
+          if (error) {
+            console.error('Error updating clue visibility:', error);
+            supersededInvalidRef.current.clear();
+            invalidWritePendingRef.current = false;
+            return;
+          }
+          invalidWritePendingRef.current = false;
+        } catch (err) {
+          console.error('Error updating clue visibility:', err);
+          supersededInvalidRef.current.clear();
+          invalidWritePendingRef.current = false;
+        }
+      });
+  };
+
   // Toggle a clue's visibility state (between translucent/invisible and active)
-  const handleToggleClueVisibility = async (clueText) => {
+  const handleToggleClueVisibility = (clueText) => {
     if (isGuesser || !sessionId) return;
 
     const normalized = normalizeClue(clueText);
-    let updatedInvalid;
+    const current = invalidCluesRef.current;
+    const updated = current.includes(normalized)
+      ? current.filter((c) => c !== normalized)
+      : [...current, normalized];
 
-    if (invalidClues.includes(normalized)) {
-      // Make visible again
-      updatedInvalid = invalidClues.filter((c) => c !== normalized);
-    } else {
-      // Mark as invisible
-      updatedInvalid = [...invalidClues, normalized];
-    }
-
-    setInvalidClues(updatedInvalid);
-
-    await supabase
-      .from('game_sessions')
-      .update({ invalid_clues: updatedInvalid })
-      .eq('id', sessionId);
+    persistInvalidClues(updated);
   };
 
   // Transition game phase when READY is clicked
@@ -563,29 +815,47 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
-  // 3. Trigger Clue Glow / Shine Effect for all players
+  // 3. Trigger Clue Glow / Shine Effect for all players.
+  // The clicker glows immediately; everyone else glows from the database update.
   const handleFlashClue = async (clueText) => {
     if (!sessionId) return;
 
-    await supabase
+    const flashId = `${Date.now()}-${++flashClearTokenRef.current}`;
+    seenFlashIdsRef.current.add(flashId);
+    const token = flashClearTokenRef.current;
+    setFlashedClueText(clueText);
+    setTimeout(() => {
+      if (flashClearTokenRef.current === token) setFlashedClueText(null);
+    }, CLUE_GLOW_MS);
+
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'clue_flash',
+      payload: { clueText, flashId },
+    });
+
+    const { error } = await supabase
       .from('game_sessions')
       .update({
         last_flashed_clue: {
           clueText,
           timestamp: Date.now(),
+          flashId,
         },
       })
       .eq('id', sessionId);
+
+    if (error) console.error('Error flashing clue:', error);
   };
 
   // 4. Handle Guesser Submission
   const handleGuessSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = guessInput.trim().replace(/\s+/g, ''); // Strip spaces
+    const trimmed = guessInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
 
-    const keyWordText = typeof currentWord === 'object' ? currentWord.text : currentWord;
-    const isMatch = trimmed.toLowerCase() === keyWordText.toLowerCase();
+    const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
+    const isMatch = trimmed.toLowerCase() === String(keyWordText ?? '').toLowerCase();
 
     // 1. Update database for ALL players to receive
     const { error } = await supabase
@@ -601,9 +871,12 @@ export default function GameRoom() {
       return;
     }
 
-    // 2. Play local victory sound if correct
     if (isMatch) {
-      playVictorySound();
+      setRoundWon(true);
+      if (!victorySoundPlayedRef.current) {
+        victorySoundPlayedRef.current = true;
+        playVictorySound();
+      }
     }
   };
 
@@ -611,7 +884,10 @@ export default function GameRoom() {
   const handleCloseEnough = async () => {
     if (!sessionId) return;
     setRoundWon(true);
-    playVictorySound();
+    if (!victorySoundPlayedRef.current) {
+      victorySoundPlayedRef.current = true;
+      playVictorySound();
+    }
 
     await supabase
       .from('game_sessions')
@@ -619,9 +895,15 @@ export default function GameRoom() {
       .eq('id', sessionId);
   };
 
-  // 6. Handle "NEXT WORD" Button Click (Advances Guesser & Word)
+  // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word)
   const handleNextWord = async () => {
-    if (!sessionId) return;
+    if (!sessionId || advancingRoundRef.current) return;
+    advancingRoundRef.current = true;
+
+    const playedText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
+    const playedEntry = playedText
+      ? { text: String(playedText).trim(), correct: Boolean(roundWon) }
+      : null;
 
     // Find index of current guesser
     const currentGuesserIdx = onlinePlayers.findIndex((p) => p.key === currentGuesserId);
@@ -637,8 +919,12 @@ export default function GameRoom() {
     setRoundWon(false);
     setGuessInput('');
 
-    // Call round setup helper
-    await startNextRound(wordList, nextPlayersOrder);
+    try {
+      // Call round setup helper
+      await startNextRound(wordList, nextPlayersOrder, playedEntry);
+    } finally {
+      advancingRoundRef.current = false;
+    }
   };
 
   // User details & round helpers
@@ -655,53 +941,121 @@ export default function GameRoom() {
       submittedClues.length > 0
     ) {
       const exactDupes = Array.from(getAutoDeduplicatedClues(submittedClues));
+      const currentInvalid = invalidCluesRef.current;
 
       // Combine existing manually hidden clues with exact duplicate clues
       const combinedInvalid = Array.from(
-        new Set([...invalidClues, ...exactDupes])
+        new Set([...currentInvalid, ...exactDupes])
       );
 
-      // Only update if there are new duplicate items not yet present in invalidClues
-      if (combinedInvalid.length !== invalidClues.length) {
-        setInvalidClues(combinedInvalid);
-        supabase
-          .from('game_sessions')
-          .update({ invalid_clues: combinedInvalid })
-          .eq('id', sessionId);
+      // Only update if there are new duplicate items not yet present
+      if (invalidClueSig(combinedInvalid) !== invalidClueSig(currentInvalid)) {
+        persistInvalidClues(combinedInvalid);
       }
     }
   }, [allCluesSubmitted, submittedClues, gameStatus]);
 
+  const exactDuplicateClues = getAutoDeduplicatedClues(submittedClues);
+  const visibleClues = submittedClues.filter((c) => {
+    if (!c?.clue) return false;
+    const norm = normalizeClue(c.clue);
+    return !invalidClues.includes(norm) && !exactDuplicateClues.has(norm);
+  });
+  const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
+  const clueWordClass = 'text-2xl font-extrabold text-sky-400';
+  const keywordClass = 'text-2xl font-extrabold text-amber-500';
+  const waitingLineClass = 'text-center text-slate-100 font-medium py-3 italic animate-pulse';
+  const pastKeywords = (Array.isArray(playedKeywords) ? playedKeywords : []).filter(
+    (item) => item && typeof item.text === 'string' && item.text.trim()
+  );
+  const pastKeywordCorrect = pastKeywords.filter((item) => item.correct).length;
+  const pastKeywordPercent = pastKeywords.length === 0
+    ? 0
+    : Math.round((pastKeywordCorrect / pastKeywords.length) * 100);
+  const roundLost = gameStatus === 'guesser_turn' && visibleClues.length === 0;
 
+  useEffect(() => {
+    if (!roundLost) lossPhraseRef.current = null;
+  }, [roundLost]);
+
+  const currentLossPhrase = () => {
+    if (!lossPhraseRef.current) {
+      lossPhraseRef.current = LOSS_PHRASES[Math.floor(Math.random() * LOSS_PHRASES.length)];
+    }
+    return lossPhraseRef.current;
+  };
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6">
+    <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-6 pb-14">
       <header className="mb-8 text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-amber-400">
-          Just One Unlimited
+        <h1 className="game-title text-4xl">
+          Just <span className="keyword-mark">One</span> Unlimited
         </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Collaborative Word Game Session
-        </p>
+        {sessionId && (
+          <button
+            type="button"
+            onClick={copySessionLink}
+            aria-label={linkCopied ? 'Session link copied' : 'Copy session link'}
+            title={linkCopied ? 'Link copied' : 'Copy session link'}
+            className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 text-sm font-mono tracking-wide cursor-pointer transition-colors"
+          >
+            <span className="whitespace-nowrap">{linkCopied ? 'Link Copied!' : sessionId.slice(0, 8)}</span>
+            {linkCopied ? (
+              <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
+          </button>
+        )}
       </header>
 
       {/* Main Layout Grid */}
       <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 flex flex-col gap-6">
 
+          {/* GUESSER TURN PHASE: no clues left, so the round is lost */}
+          {roundLost && (
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+              <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg mx-auto shadow-2xl text-center">
+                <h2 className="text-3xl font-black text-rose-400 tracking-wider">
+                  {currentLossPhrase()}
+                </h2>
+                <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
+                  <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
+                  <p className={keywordClass}>
+                    {keyWordText}
+                  </p>
+                </div>
+                <button
+                  onClick={handleNextWord}
+                  className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
+                >
+                  <span>NEXT KEYWORD</span>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* GUESSER TURN PHASE */}
-          {gameStatus === 'guesser_turn' && (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
+          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative">
 
               {/* Timer & Phase Header */}
               <div className="flex items-center justify-between border-b border-slate-700 pb-4">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
                     Guessing Phase
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-amber-400">
+                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
                   ⏱️ {timerSeconds}s
                 </div>
               </div>
@@ -712,73 +1066,48 @@ export default function GameRoom() {
 
                   {/* Guesser Input Form (Only visible to the Guesser) */}
                   {isGuesser && (
-                    <div className="bg-slate-900/60 p-6 rounded-xl border border-slate-700 flex flex-col items-center gap-4 text-center">
-                      <h2 className="text-2xl font-black text-amber-400 tracking-wide">
-                        ENTER YOUR GUESS
-                      </h2>
-                      <form onSubmit={handleGuessSubmit} className="flex gap-2 w-full max-w-md">
-                        <input
-                          type="text"
-                          value={guessInput}
-                          onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, ''))}
-                          placeholder="One word guess (no spaces)..."
-                          className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 text-lg font-medium"
-                        />
-                        <button
-                          type="submit"
-                          className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg"
-                        >
-                          SUBMIT GUESS
-                        </button>
-                      </form>
-                    </div>
+                    <form onSubmit={handleGuessSubmit} className="flex w-full">
+                      <input
+                        type="text"
+                        value={guessInput}
+                        onChange={(e) => setGuessInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        aria-label="Guess keyword"
+                        className={`flex-1 min-w-0 text-center bg-slate-800 border border-slate-600 border-r-0 rounded-l-xl rounded-r-none px-3 py-3 focus:outline-none focus:border-amber-400 uppercase ${keywordClass}`}
+                      />
+                      <button
+                        type="submit"
+                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer whitespace-nowrap shadow-md active:scale-95"
+                      >
+                        GUESS KEYWORD
+                      </button>
+                    </form>
                   )}
 
                   {/* Visible Clues Grid (Shown to BOTH Guesser and Clue Givers) */}
                   <div className="flex flex-col gap-3">
-                    <p className="text-xs text-slate-400 italic">
-                      {isGuesser
-                        ? 'Watch the clues carefully! Clue givers can tap them to highlight key hints.'
-                        : 'Click any clue to trigger a glowing shine on everyone’s screen!'}
-                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {visibleClues.map((c, idx) => {
+                        const isFlashed = flashedClueText === c.clue;
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {(() => {
-                        // Get exact duplicates set
-                        const exactDupes = getAutoDeduplicatedClues(submittedClues);
-
-                        return submittedClues
-                          .filter((c) => {
-                            const norm = c.clue.trim().toLowerCase();
-                            const isManuallyHidden = invalidClues.includes(norm);
-                            const isExactDup = exactDupes.has(norm);
-
-                            // Exclude both manually hidden clues and exact duplicates!
-                            return !isManuallyHidden && !isExactDup;
-                          })
-                          .map((c, idx) => {
-                            const isFlashed = flashedClueText === c.clue;
-
-                            return (
-                              <div
-                                key={idx}
-                                onClick={() => !isGuesser && handleFlashClue(c.clue)}
-                                className={`p-4 rounded-xl text-center border transition-all select-none relative overflow-hidden ${!isGuesser ? 'cursor-pointer' : 'cursor-default'
-                                  } ${isFlashed
-                                    ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_25px_rgba(251,191,36,0.8)] scale-105 z-10'
-                                    : 'bg-slate-700/80 border-slate-600/80 text-slate-100'
-                                  }`}
-                              >
-                                <p className={`text-2xl font-extrabold ${isFlashed ? 'text-slate-950' : 'text-amber-300'}`}>
-                                  {c.clue}
-                                </p>
-                                <p className={`text-xs italic mt-1 ${isFlashed ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>
-                                  by {getPlayerName(c.playerKey, c.username)}
-                                </p>
-                              </div>
-                            );
-                          });
-                      })()}
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => !isGuesser && handleFlashClue(c.clue)}
+                            className={`p-4 rounded-xl text-center border transition-all select-none relative overflow-hidden ${!isGuesser ? 'cursor-pointer' : 'cursor-default'
+                              } ${isFlashed
+                                ? 'bg-slate-900 border-sky-400 shadow-[0_0_25px_rgba(56,189,248,0.85)] scale-105 z-10'
+                                : 'bg-slate-700/80 border-slate-600/80 text-slate-100'
+                              }`}
+                          >
+                            <p className={clueWordClass}>
+                              {c.clue}
+                            </p>
+                            <p className="text-xs italic mt-1 text-slate-300">
+                              by {getPlayerName(c.playerKey, c.username)}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -787,10 +1116,13 @@ export default function GameRoom() {
                     <div className="pt-4 border-t border-slate-700/60">
                       <WordSubmissionWidget
                         newWord={newWord}
-                        setNewWord={setNewWord}
+                        setNewWord={updateNewWord}
                         onAddWord={handleAddWord}
+                        onRemoveWord={handleRemoveWord}
                         wordList={wordList}
                         getPlayerName={getPlayerName}
+                        currentUserId={CLIENT_ID}
+                        keywordError={keywordError}
                       />
                     </div>
                   )}
@@ -804,12 +1136,12 @@ export default function GameRoom() {
                     <div className="flex flex-col items-center gap-4 bg-emerald-500/10 border border-emerald-500/40 p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in">
                       <span className="text-5xl">🎉</span>
                       <h2 className="text-3xl font-black text-emerald-400 tracking-wider">
-                        YOU WON THE ROUND!
+                        {currentWinPhrase()}
                       </h2>
                       <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
-                        <p className="text-xs text-slate-400 uppercase tracking-widest">Key Word</p>
-                        <p className="text-3xl font-extrabold text-amber-300">
-                          {typeof currentWord === 'object' ? currentWord.text : currentWord}
+                        <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
+                        <p className={keywordClass}>
+                          {keyWordText}
                         </p>
                       </div>
 
@@ -817,7 +1149,7 @@ export default function GameRoom() {
                         onClick={handleNextWord}
                         className="mt-4 px-8 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
                       >
-                        <span>NEXT WORD</span>
+                        <span>NEXT KEYWORD</span>
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                         </svg>
@@ -828,13 +1160,13 @@ export default function GameRoom() {
                     <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg shadow-2xl">
                       <div className="grid grid-cols-2 gap-4 w-full">
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <p className="text-xs text-slate-400 uppercase tracking-wider">Guessed Word</p>
+                          <p className="text-xs text-slate-400 uppercase tracking-wider">Guess</p>
                           <p className="text-2xl font-bold text-rose-400 truncate">{submittedGuess}</p>
                         </div>
                         <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                          <p className="text-xs text-slate-400 uppercase tracking-wider">Key Word</p>
-                          <p className="text-2xl font-bold text-amber-300 truncate">
-                            {typeof currentWord === 'object' ? currentWord.text : currentWord}
+                          <p className="text-xs text-slate-400 uppercase tracking-wider">Keyword</p>
+                          <p className={`${keywordClass} truncate`}>
+                            {keyWordText}
                           </p>
                         </div>
                       </div>
@@ -854,7 +1186,7 @@ export default function GameRoom() {
                           onClick={handleNextWord}
                           className="flex-1 px-5 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
                         >
-                          <span>NEXT WORD</span>
+                          <span>NEXT KEYWORD</span>
                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
@@ -870,35 +1202,58 @@ export default function GameRoom() {
           {/* GAME OVER VIEW */}
           {/* 1. GAME OVER VIEW */}
           {gameStatus === 'game_over' ? (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
-              <h2 className="text-5xl font-extrabold text-red-500 mb-4 tracking-wider">
-                GAME OVER
-              </h2>
-              <p className="text-slate-300">
-                There are no valid words left for remaining guessers!
-              </p>
-            </div>
+            <>
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-12 text-center shadow-2xl">
+                <h2 className="text-5xl font-extrabold text-red-500 mb-4 tracking-wider">
+                  NO KEYWORDS LEFT
+                </h2>
+                <p className="text-slate-300">
+                  Add more keywords to continue.
+                </p>
+              </div>
+              <WordSubmissionWidget
+                newWord={newWord}
+                setNewWord={updateNewWord}
+                onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
+                wordList={wordList}
+                getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
+                keywordError={keywordError}
+              />
+            </>
           ) : gameStatus === 'in_round' ? (
             /* MAIN GAME DIV */
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full animate-ping ${isGuesser ? 'bg-yellow-400' : 'bg-emerald-500'}`}></span>
+                  <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                    Clue-Giving Phase
+                  </span>
+                </div>
+                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
+                  ⏱️ {clueWaitSeconds}s
+                </div>
+              </div>
               {isGuesser ? (
                 /* GUESSER VIEW */
                 <div className="flex flex-col gap-6">
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
-                    <h2 className="text-3xl font-extrabold text-amber-400 mb-1">
-                      YOU ARE THE GUESSER
-                    </h2>
-                    <p className="text-slate-400 text-sm animate-pulse">
-                      Waiting for clue givers to submit and filter clues...
+                    <p className={waitingLineClass}>
+                      Waiting for clue givers...
                     </p>
                   </div>
 
                   <WordSubmissionWidget
                     newWord={newWord}
-                    setNewWord={setNewWord}
+                    setNewWord={updateNewWord}
                     onAddWord={handleAddWord}
+                    onRemoveWord={handleRemoveWord}
                     wordList={wordList}
                     getPlayerName={getPlayerName}
+                    currentUserId={CLIENT_ID}
+                    keywordError={keywordError}
                   />
                 </div>
               ) : (
@@ -907,12 +1262,12 @@ export default function GameRoom() {
                   {/* Chosen Word Banner */}
                   <div className="text-center bg-slate-900/60 p-6 rounded-xl border border-slate-700">
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
-                      Chosen Word
+                      Keyword
                     </p>
-                    <h2 className="text-5xl font-black text-amber-300 tracking-wide">
-                      {typeof currentWord === 'object' ? currentWord.text : currentWord}
-                    </h2>
-                    {typeof currentWord === 'object' && (
+                    <p className={keywordClass}>
+                      {keyWordText}
+                    </p>
+                    {currentWord && typeof currentWord === 'object' && (
                       <p className="text-xs italic text-slate-400 mt-2">
                         Submitted by {getPlayerName(currentWord.authorId, currentWord.authorName)}
                       </p>
@@ -921,17 +1276,17 @@ export default function GameRoom() {
 
                   {/* Clue Input Form or Waiting Text */}
                   {!hasSubmittedMyClue && (
-                    <form onSubmit={handleGiveClue} className="flex gap-2">
+                    <form onSubmit={handleGiveClue} className="flex w-full">
                       <input
                         type="text"
                         value={myClueInput}
-                        onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, ''))} // Reject spaces
-                        placeholder="Enter 1-word clue (no spaces)..."
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
+                        onChange={(e) => setMyClueInput(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        placeholder="Enter a clue for the keyword"
+                        className="flex-1 min-w-0 text-center bg-slate-900 border border-slate-700 border-r-0 rounded-l-xl rounded-r-none px-4 py-3 text-lg text-sky-400 font-extrabold placeholder:text-slate-500 placeholder:font-normal focus:outline-none focus:border-sky-400 transition-colors"
                       />
                       <button
                         type="submit"
-                        className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap"
+                        className="w-[199px] shrink-0 px-5 py-3 bg-sky-400 hover:bg-sky-300 text-slate-950 text-lg font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap text-center"
                       >
                         GIVE CLUE
                       </button>
@@ -939,8 +1294,8 @@ export default function GameRoom() {
                   )}
 
                   {hasSubmittedMyClue && !allCluesSubmitted && (
-                    <p className="text-center text-amber-400/90 font-medium py-3 italic animate-pulse">
-                      Waiting for other clues...
+                    <p className={waitingLineClass}>
+                      Waiting for other clue givers...
                     </p>
                   )}
 
@@ -967,7 +1322,7 @@ export default function GameRoom() {
                       </div>
 
                       {/* Clues Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 gap-3">
                         {submittedClues.map((c, idx) => {
                           const norm = normalizeClue(c.clue);
                           const isExactDup = isExactDuplicateClue(c.clue, submittedClues);
@@ -983,16 +1338,16 @@ export default function GameRoom() {
                                   handleToggleClueVisibility(c.clue);
                                 }
                               }}
-                              className={`p-3.5 rounded-xl text-center border transition-all select-none relative ${
+                              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${
                                 /* 1. EXACT DUPLICATES (Permanently Disabled / Locked) */
                                 isExactDup
                                   ? 'opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] cursor-not-allowed'
                                   /* 2. MANUALLY HIDDEN CLUES (Can be toggled back) */
                                   : isManuallyHidden
-                                    ? 'opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] cursor-pointer hover:border-amber-400/40'
+                                    ? 'opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] cursor-pointer hover:border-sky-400/40'
 
                                     /* 3. VISIBLE ACTIVE CLUES */
-                                    : 'bg-slate-700/70 border-slate-600/80 hover:border-amber-400/60 shadow-md cursor-pointer'
+                                    : 'bg-slate-700/70 border-slate-600/80 hover:border-sky-400/60 shadow-md cursor-pointer'
                                 }`}
                             >
                               {/* Status Badges */}
@@ -1003,8 +1358,7 @@ export default function GameRoom() {
                               ) : null}
 
                               <p
-                                className={`text-xl font-bold transition-all ${isInvisible ? 'text-slate-400 line-through' : 'text-amber-300'
-                                  }`}
+                                className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''}`}
                               >
                                 {c.clue}
                               </p>
@@ -1053,7 +1407,7 @@ export default function GameRoom() {
 
                 {/* Status Helper Message (Only shown when under 5 words) */}
                 {wordList.length < 5 && (
-                  <p className="text-xs text-amber-400/80 mt-3 font-medium flex items-center gap-1.5">
+                  <p className="text-xs text-amber-400/80 mt-5 font-medium flex items-center gap-1.5">
                     5+ words to start ({wordList.length}/5 added)
                   </p>
                 )}
@@ -1061,74 +1415,113 @@ export default function GameRoom() {
 
               <WordSubmissionWidget
                 newWord={newWord}
-                setNewWord={setNewWord}
+                setNewWord={updateNewWord}
                 onAddWord={handleAddWord}
+                onRemoveWord={handleRemoveWord}
                 wordList={wordList}
                 getPlayerName={getPlayerName}
+                currentUserId={CLIENT_ID}
+                keywordError={keywordError}
               />
 
             </div>
           ) : null}
         </div>
 
-        {/* Players Sidebar Widget */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
-          <h2 className="text-lg font-semibold mb-4 text-slate-200 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Players ({onlinePlayers.length})</span>
-          </h2>
+        {/* Players column */}
+        <div className="flex flex-col gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
+            <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-2">
+              <span className="uppercase">Players ({onlinePlayers.length})</span>
+            </div>
 
-          <div className="flex flex-col gap-2.5">
-            {onlinePlayers.map((playerObj, idx) => {
-              const isMe = playerObj.key === CLIENT_ID;
-              const isGuesserPlayer = playerObj.key === currentGuesserId;
+            <div className="flex flex-col gap-2.5">
+              {onlinePlayers.map((playerObj, idx) => {
+                const isMe = playerObj.key === CLIENT_ID;
+                const isGuesserPlayer = playerObj.key === currentGuesserId;
 
-              return (
-                <div key={idx} className="flex flex-col">
-                  {isMe && isEditingName ? (
-                    <input
-                      ref={editInputRef}
-                      type="text"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
-                      onBlur={() => handleSaveUsername(tempName)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleSaveUsername(tempName);
-                        }
-                      }}
-                      className="w-full bg-slate-900 text-amber-300 px-3 py-2 rounded-lg border-2 border-amber-400 focus:outline-none text-sm font-medium shadow-inner"
-                    />
-                  ) : (
-                    <div
-                      onClick={() => {
-                        if (isMe) {
-                          setTempName(myUsername);
-                          setIsEditingName(true);
-                        }
-                      }}
-                      className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between transition-all ${isMe
-                        ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer hover:border-amber-400/80'
-                        : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
-                        }`}
-                    >
-                      <span className="truncate">
-                        {playerObj.username} {isMe && '(You)'}
-                      </span>
-
-                      {isGuesserPlayer && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
-                          Guesser
+                return (
+                  <div key={idx} className="flex flex-col">
+                    {isMe && isEditingName ? (
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={tempName}
+                        onChange={(e) => setTempName(e.target.value)}
+                        onBlur={() => handleSaveUsername(tempName)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleSaveUsername(tempName);
+                          }
+                        }}
+                        className="w-full bg-slate-900 text-amber-300 px-3 py-2 rounded-lg border-2 border-amber-400 focus:outline-none text-sm font-medium shadow-inner"
+                      />
+                    ) : (
+                      <div
+                        onClick={() => {
+                          if (isMe) {
+                            setTempName(myUsername);
+                            setIsEditingName(true);
+                          }
+                        }}
+                        className={`p-2.5 rounded-lg border text-sm font-medium flex items-center justify-between transition-all ${isMe
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-pointer hover:border-amber-400/80'
+                          : 'border-slate-700/50 bg-slate-700/30 text-slate-300'
+                          }`}
+                      >
+                        <span className="truncate">
+                          {playerObj.username} {isMe && '(You)'}
                         </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+
+                        {isGuesserPlayer && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded">
+                            Guesser
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
+          {pastKeywords.length > 0 && (
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
+              <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-1">
+                <span className="uppercase">Past Keywords ({pastKeywords.length}</span>
+                <span className="mx-0.5 h-3 w-px bg-slate-300 shrink-0" aria-hidden="true"></span>
+                <span>{pastKeywordPercent}%</span>
+                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>)</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {pastKeywords.map((item, idx) => (
+                  <span
+                    key={`${item.text}-${idx}`}
+                    className={`text-xs font-bold px-2 py-0.5 rounded-full border text-amber-500 ${item.correct
+                      ? 'border-emerald-400'
+                      : 'border-rose-400'
+                      }`}
+                  >
+                    {item.text}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+      <a
+        href="https://boardgamegeek.com/boardgame/254640/just-one"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-3 left-1/2 z-20 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 text-center text-xs italic leading-relaxed text-slate-400/60 underline-offset-2 hover:text-slate-200 hover:underline"
+      >
+        based on Just One designed by Ludovic Roudy & Bruno Sautter
+      </a>
     </div>
   );
 }

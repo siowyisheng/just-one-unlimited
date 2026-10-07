@@ -4,42 +4,54 @@ export default function WordSubmissionWidget({
     newWord,
     setNewWord,
     onAddWord,
+    onRemoveWord,
     wordList,
     getPlayerName,
-    title = "Shared Word List",
-    placeholder = "Enter a one-word noun",
+    currentUserId,
+    keywordError = "",
+    title = "Shared Keyword List",
+    placeholder = "Enter a noun or name",
 }) {
     return (
         <div className="flex flex-col gap-4">
             {/* Add Word Form */}
-            <form onSubmit={onAddWord} className="flex gap-2">
-                <input
-                    type="text"
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    placeholder={placeholder}
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-400 transition-colors"
-                />
-                <button
-                    type="submit"
-                    className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
-                >
-                    Add
-                </button>
-            </form>
+            <div className="flex flex-col gap-2">
+                <form onSubmit={onAddWord} className="flex justify-center">
+                    <input
+                        type="text"
+                        value={newWord}
+                        onChange={(e) => setNewWord(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        placeholder={placeholder}
+                        aria-invalid={keywordError ? "true" : "false"}
+                        aria-describedby={keywordError ? "add-keyword-error" : undefined}
+                        className={`w-64 max-w-[60%] text-center h-[58px] box-border bg-slate-800 border border-r-0 rounded-l-xl rounded-r-none px-4 text-2xl font-extrabold leading-[56px] text-amber-500 placeholder-shown:text-base placeholder-shown:font-normal placeholder:text-slate-500 focus:outline-none transition-colors ${keywordError ? "border-rose-500 focus:border-rose-400" : "border-slate-700 focus:border-amber-400"}`}
+                    />
+                    <button
+                        type="submit"
+                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-r-xl rounded-l-none transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                    >
+                        ADD KEYWORD
+                    </button>
+                </form>
+                {keywordError ? (
+                    <p id="add-keyword-error" role="alert" className="text-center text-sm font-medium text-rose-400">
+                        {keywordError}
+                    </p>
+                ) : null}
+            </div>
 
             {/* Shared Word List Display */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 min-h-[160px]">
                 <h3 className="text-sm font-semibold mb-3 text-slate-300 flex justify-between items-center">
                     <span>{title}</span>
                     <span className="text-xs font-normal text-slate-400">
-                        {wordList.length} {wordList.length === 1 ? 'word' : 'words'} in pool
+                        {wordList.length} {wordList.length === 1 ? 'keyword' : 'keywords'} in pool
                     </span>
                 </h3>
 
                 {wordList.length === 0 ? (
                     <p className="text-slate-500 text-center py-8 text-sm italic">
-                        No words added yet. Type a word above!
+                        Add a keyword above!
                     </p>
                 ) : (
                     <div className="flex flex-wrap gap-2">
@@ -47,18 +59,37 @@ export default function WordSubmissionWidget({
                             const authorId = typeof item === 'object' ? item.authorId : null;
                             const staticAuthorName = typeof item === 'object' ? item.authorName : null;
                             const author = authorId ? getPlayerName(authorId, staticAuthorName) : staticAuthorName;
+                            const wordText = typeof item === 'object' ? item.text : item;
+                            const isMine = Boolean(currentUserId) && authorId === currentUserId;
+
+                            const authorLabel = author ? (
+                                <span className="text-[10px] text-slate-400 italic tracking-normal">
+                                    ({author})
+                                </span>
+                            ) : null;
+
+                            if (isMine) {
+                                return (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => onRemoveWord(idx)}
+                                        aria-label={`Remove ${wordText}`}
+                                        title="Remove this keyword"
+                                        className="bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600/60 hover:border-rose-400/70 tracking-normal select-none cursor-pointer transition-colors"
+                                    >
+                                        <span className="text-sm font-extrabold text-amber-500">{wordText}</span>
+                                    </button>
+                                );
+                            }
 
                             return (
                                 <span
                                     key={idx}
-                                    className="bg-slate-700 text-amber-300 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600/60 flex items-center gap-1.5 tracking-widest select-none"
+                                    className="bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600/60 flex items-center gap-1.5 select-none"
                                 >
-                                    <span>******</span>
-                                    {author && (
-                                        <span className="text-[10px] text-slate-400 italic tracking-normal">
-                                            ({author})
-                                        </span>
-                                    )}
+                                    <span className="text-sm font-extrabold text-amber-500 tracking-widest">******</span>
+                                    {authorLabel}
                                 </span>
                             );
                         })}
