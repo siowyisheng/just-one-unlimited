@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 
 import WordSubmissionWidget from './components/WordSubmissionWidget';
+import ClueCardsGrid from './components/ClueCardsGrid';
 
 // Lightweight native Web Audio victory sound synth
 const playVictorySound = () => {
@@ -1522,12 +1523,20 @@ export default function GameRoom() {
                 <h2 className="text-3xl font-black text-rose-400 tracking-wider">
                   {currentLossPhrase()}
                 </h2>
-                <div className="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
+                <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
                   <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
                   <p className={keywordClass}>
                     {keyWordText}
                   </p>
                 </div>
+                <ClueCardsGrid
+                  clues={submittedClues}
+                  invalidClues={invalidClues}
+                  normalizeClue={normalizeClue}
+                  isExactDuplicateClue={isExactDuplicateClue}
+                  getPlayerName={getPlayerName}
+                  clueWordClass={clueWordClass}
+                />
                 <button
                   onClick={handleNextWord}
                   className="mt-2 px-8 py-3.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-extrabold text-lg rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center gap-2"
@@ -1651,6 +1660,14 @@ export default function GameRoom() {
                           {keyWordText}
                         </p>
                       </div>
+                      <ClueCardsGrid
+                        clues={submittedClues}
+                        invalidClues={invalidClues}
+                        normalizeClue={normalizeClue}
+                        isExactDuplicateClue={isExactDuplicateClue}
+                        getPlayerName={getPlayerName}
+                        clueWordClass={clueWordClass}
+                      />
 
                       <button
                         onClick={handleNextWord}
@@ -1677,6 +1694,14 @@ export default function GameRoom() {
                           </p>
                         </div>
                       </div>
+                      <ClueCardsGrid
+                        clues={submittedClues}
+                        invalidClues={invalidClues}
+                        normalizeClue={normalizeClue}
+                        isExactDuplicateClue={isExactDuplicateClue}
+                        getPlayerName={getPlayerName}
+                        clueWordClass={clueWordClass}
+                      />
 
                       <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full">
                         <button
@@ -1856,54 +1881,17 @@ export default function GameRoom() {
                         </button>
                       </div>
 
-                      {/* Clues Grid */}
-                      <div className="grid grid-cols-2 gap-3">
-                        {submittedClues.map((c, idx) => {
-                          const norm = normalizeClue(c.clue);
-                          const isExactDup = isExactDuplicateClue(c.clue, submittedClues);
-                          const isManuallyHidden = invalidClues.includes(norm) && !isExactDup;
-                          const isInvisible = isExactDup || isManuallyHidden;
-
-                          return (
-                            <div
-                              key={idx}
-                              onClick={() => {
-                                // Only allow toggling if it's NOT an exact duplicate and user is NOT the guesser
-                                if (!isExactDup && !isGuesser) {
-                                  handleToggleClueVisibility(c.clue);
-                                }
-                              }}
-                              className={`p-3.5 rounded-xl text-center border transition-[border-color] select-none relative ${
-                                /* 1. EXACT DUPLICATES (Permanently Disabled / Locked) */
-                                isExactDup
-                                  ? 'opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] cursor-not-allowed'
-                                  /* 2. MANUALLY HIDDEN CLUES (Can be toggled back) */
-                                  : isManuallyHidden
-                                    ? 'opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] cursor-pointer hover:border-sky-400/40'
-
-                                    /* 3. VISIBLE ACTIVE CLUES */
-                                    : 'bg-slate-700/70 border-slate-600/80 hover:border-sky-400/60 shadow-md cursor-pointer'
-                                }`}
-                            >
-                              {/* Status Badges */}
-                              {isManuallyHidden ? (
-                                <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                  HIDDEN
-                                </span>
-                              ) : null}
-
-                              <p
-                                className={`${clueWordClass} ${isInvisible ? 'line-through opacity-40' : ''}`}
-                              >
-                                {c.clue}
-                              </p>
-                              <p className="text-xs italic text-slate-400 mt-1">
-                                by {getPlayerName(c.playerKey, c.username)}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <ClueCardsGrid
+                        clues={submittedClues}
+                        invalidClues={invalidClues}
+                        normalizeClue={normalizeClue}
+                        isExactDuplicateClue={isExactDuplicateClue}
+                        getPlayerName={getPlayerName}
+                        clueWordClass={clueWordClass}
+                        interactive
+                        isGuesser={isGuesser}
+                        onToggleClue={handleToggleClueVisibility}
+                      />
                     </div>
                   )}
                 </div>
