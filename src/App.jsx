@@ -210,16 +210,51 @@ export default function GameRoom() {
   myUsernameRef.current = myUsername;
   const isTypingRef = useRef(false);
   const typingIdleTimerRef = useRef(null);
+  const wordListRef = useRef(wordList);
+  wordListRef.current = wordList;
+  const onlinePlayersRef = useRef(onlinePlayers);
+  onlinePlayersRef.current = onlinePlayers;
+  const gameStatusRef = useRef(gameStatus);
+  gameStatusRef.current = gameStatus;
+  const startNextRoundRef = useRef(null);
+  const startRoundInFlightRef = useRef(false);
 
-  const trackPresence = ({ username, isTyping } = {}) => {
+  // Existing rule: start once >=2 distinct start clicks. Only one client
+  // (lexicographically first requester) writes the round to avoid racing picks.
+  const tryStartRoundIfReady = (requesters) => {
+    if (!requesters || requesters.size < 2) return;
+    if (gameStatusRef.current !== 'lobby') return;
+    if (startRoundInFlightRef.current) return;
+    const leaderId = [...requesters].sort()[0];
+    if (leaderId !== CLIENT_ID) return;
+    const startRound = startNextRoundRef.current;
+    if (!startRound) return;
+    startRoundInFlightRef.current = true;
+    startRound(wordListRef.current, onlinePlayersRef.current);
+  };
+
+  // Typing is broadcast-only so presence stays a stable join/leave roster.
+  // Re-track() on typing start/stop was dropping peers from presence sync.
+  const setPlayerTyping = (playerKey, isTyping) => {
+    setOnlinePlayers((prev) => {
+      let changed = false;
+      const next = prev.map((player) => {
+        if (player.key !== playerKey) return player;
+        const nextTyping = Boolean(isTyping);
+        if (Boolean(player.isTyping) === nextTyping) return player;
+        changed = true;
+        return { ...player, isTyping: nextTyping };
+      });
+      return changed ? next : prev;
+    });
+  };
+
+  const broadcastTyping = (isTyping) => {
     if (!channelRef.current) return;
-    const nextUsername = username ?? myUsernameRef.current;
-    const nextTyping =
-      isTyping !== undefined ? Boolean(isTyping) : isTypingRef.current;
-    isTypingRef.current = nextTyping;
-    channelRef.current.track({
-      username: nextUsername,
-      isTyping: nextTyping,
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'player_typing',
+      payload: { playerKey: CLIENT_ID, isTyping: Boolean(isTyping) },
     });
   };
 
@@ -227,13 +262,17 @@ export default function GameRoom() {
     window.clearTimeout(typingIdleTimerRef.current);
     typingIdleTimerRef.current = null;
     if (!isTypingRef.current) return;
-    trackPresence({ isTyping: false });
+    isTypingRef.current = false;
+    setPlayerTyping(CLIENT_ID, false);
+    broadcastTyping(false);
   };
 
   const signalTyping = () => {
     window.clearTimeout(typingIdleTimerRef.current);
     if (!isTypingRef.current) {
-      trackPresence({ isTyping: true });
+      isTypingRef.current = true;
+      setPlayerTyping(CLIENT_ID, true);
+      broadcastTyping(true);
     }
     typingIdleTimerRef.current = window.setTimeout(() => {
       clearTyping();
@@ -394,35 +433,55 @@ export default function GameRoom() {
       }, CLUE_GLOW_MS);
     });
 
-    // Presence listener
+    // Presence listener — roster only. Typing is merged from local/broadcast state
+    // so a presence sync does not wipe indicators or require re-track().
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
-      const players = [];
 
-      Object.keys(state).forEach((key) => {
-        const presences = state[key];
-        if (presences && presences.length > 0) {
-          players.push({
-            key, // CLIENT_ID
-            username: presences[0].username || 'Anonymous',
-            isTyping: Boolean(presences[0].isTyping),
-          });
-        }
+      setOnlinePlayers((prev) => {
+        const prevTyping = new Map(prev.map((p) => [p.key, Boolean(p.isTyping)]));
+        const players = [];
+
+        Object.keys(state).forEach((key) => {
+          const presences = state[key];
+          if (presences && presences.length > 0) {
+            // Prefer the latest meta if multiple exist (e.g. username re-track).
+            const meta = presences[presences.length - 1];
+            players.push({
+              key, // CLIENT_ID
+              username: meta.username || 'Anonymous',
+              // Keep local typing across presence sync; peers come from broadcasts.
+              isTyping:
+                key === CLIENT_ID
+                  ? isTypingRef.current
+                  : Boolean(prevTyping.get(key)),
+            });
+          }
+        });
+
+        return players;
       });
-
-      setOnlinePlayers(players);
     });
 
-    // Start Game Broadcast Listener
+    // Typing indicators (setup keywords + clue typing). Not presence-tracked.
+    channel.on('broadcast', { event: 'player_typing' }, ({ payload }) => {
+      const playerKey = payload?.playerKey;
+      if (!playerKey || playerKey === CLIENT_ID) return;
+      setPlayerTyping(playerKey, Boolean(payload?.isTyping));
+    });
+
+    // Start Game Broadcast Listener — re-check the existing >=2 threshold so the
+    // mutual-click race (both at size 1 locally) still starts the round.
     channel.on('broadcast', { event: 'start_game_click' }, (payload) => {
       const pKey = payload.payload?.playerKey;
-      if (pKey) {
-        setStartRequesters((prev) => {
-          const next = new Set(prev);
-          next.add(pKey);
-          return next;
-        });
-      }
+      if (!pKey) return;
+
+      setStartRequesters((prev) => {
+        const next = new Set(prev);
+        next.add(pKey);
+        queueMicrotask(() => tryStartRoundIfReady(next));
+        return next;
+      });
     });
 
     channel.subscribe(async (status) => {
@@ -430,7 +489,6 @@ export default function GameRoom() {
         isTypingRef.current = false;
         await channel.track({
           username: myUsernameRef.current,
-          isTyping: false,
         });
       }
     });
@@ -617,6 +675,7 @@ export default function GameRoom() {
       })
       .eq('id', sessionId);
   };
+  startNextRoundRef.current = startNextRound;
 
   const copySessionLink = async () => {
     if (!sessionId) return;
@@ -667,8 +726,10 @@ export default function GameRoom() {
     localStorage.setItem('just_one_username', trimmed);
     setMyUsername(trimmed);
 
-    // Update Supabase Realtime Presence tracking
-    trackPresence({ username: trimmed });
+    // Update Supabase Realtime Presence tracking (username only — not typing)
+    if (channelRef.current) {
+      await channelRef.current.track({ username: trimmed });
+    }
 
     setIsEditingName(false);
   };
@@ -692,9 +753,7 @@ export default function GameRoom() {
     }
 
     // If 2 or more players have clicked start, initialize round
-    if (updatedRequesters.size >= 2) {
-      startNextRound(wordList, onlinePlayers);
-    }
+    tryStartRoundIfReady(updatedRequesters);
   };
 
   const updateNewWord = (value) => {
