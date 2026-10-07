@@ -310,6 +310,10 @@ const statPercent = (numerator, denominator) => {
   return Math.round((num / den) * 100);
 };
 
+// Shared by every PLAYERS success % — differ only via colorClass (sky vs amber).
+const PLAYER_STAT_PCT_CLASS =
+  'inline-flex items-center align-middle border-0 bg-transparent p-0 m-0 cursor-help text-[10px] font-semibold leading-none tabular-nums';
+
 /** Small % with hover title + tap-to-reveal label (mobile).
  *  Hide only when value is null (no denominator). value 0 renders as "0%". */
 function PlayerStatPct({ value, label, colorClass }) {
@@ -334,13 +338,13 @@ function PlayerStatPct({ value, label, colorClass }) {
   const display = `${value}%`;
 
   return (
-    <span className="relative inline-flex">
+    <span className={`relative ${PLAYER_STAT_PCT_CLASS} ${colorClass}`}>
       <button
         type="button"
         title={label}
         aria-label={`${label}: ${display}`}
         onClick={revealTip}
-        className={`bg-transparent border-0 p-0 m-0 cursor-help text-[10px] font-semibold tabular-nums leading-none ${colorClass}`}
+        className={`${PLAYER_STAT_PCT_CLASS} text-inherit`}
       >
         {display}
       </button>
