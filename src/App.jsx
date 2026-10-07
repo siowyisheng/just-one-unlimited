@@ -1122,13 +1122,17 @@ export default function GameRoom() {
         return { ok: true, error: null, clues: prev };
       }
 
+      // JSON.stringify is required: postgrest-js coerces a JS array via
+      // String(value), so [] → "eq." and [{…}] → "eq.[object Object]", both
+      // invalid JSON filters that make every CAS attempt fail (clue submit
+      // optimistic UI then rolls back).
       const { data: updated, error } = await supabase
         .from('game_sessions')
         .update({ submitted_clues: next })
         .eq('id', sessionId)
         .eq('game_status', 'in_round')
         .eq('current_word->>text', expectedText)
-        .eq('submitted_clues', prev)
+        .eq('submitted_clues', JSON.stringify(prev))
         .select('submitted_clues');
 
       if (error) return { ok: false, error, clues: null };
