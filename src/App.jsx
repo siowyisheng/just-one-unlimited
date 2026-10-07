@@ -162,6 +162,9 @@ const LOSS_PHRASES = [
 const GUESS_COUNTDOWN_SECONDS = 30;
 const GUESS_TIMEOUT_SECONDS = 31;
 
+// Clue-review: delay before READY FOR GUESSER is clickable (client-local).
+const READY_FOR_GUESSER_DELAY_SECONDS = 3;
+
 const guesserTurnStartedAtOf = (word) =>
   typeof word === 'object' && word && typeof word.guesserTurnStartedAt === 'string'
     ? word.guesserTurnStartedAt
@@ -242,6 +245,7 @@ export default function GameRoom() {
   const [guessCountdownSeconds, setGuessCountdownSeconds] = useState(GUESS_COUNTDOWN_SECONDS);
   const [guessCountdownProgress, setGuessCountdownProgress] = useState(1);
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
+  const [readyDelaySeconds, setReadyDelaySeconds] = useState(READY_FOR_GUESSER_DELAY_SECONDS);
   const guessTimeoutInFlightRef = useRef(false);
   const fireGuessTimeoutRef = useRef(null);
 
@@ -1301,7 +1305,7 @@ export default function GameRoom() {
   // Stamps guesserTurnStartedAt (server-aligned ISO) on current_word so every
   // client — including late joiners — shares one countdown deadline.
   const handleConfirmCluesReady = async () => {
-    if (!sessionId) return;
+    if (!sessionId || readyDelaySeconds > 0) return;
     const expectedText = String(keywordText(currentWord) ?? '').trim();
     if (!expectedText) return;
 
@@ -1567,6 +1571,29 @@ export default function GameRoom() {
     hasSubmittedMyClue &&
     !allCluesSubmitted &&
     gameStatus === 'in_round';
+
+  // Client-local delay before READY FOR GUESSER: starts when review UI appears
+  // (all clues in), not from earlier page load / clue-giving wait.
+  useEffect(() => {
+    if (gameStatus !== 'in_round' || !allCluesSubmitted) {
+      setReadyDelaySeconds(READY_FOR_GUESSER_DELAY_SECONDS);
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    setReadyDelaySeconds(READY_FOR_GUESSER_DELAY_SECONDS);
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      setReadyDelaySeconds(
+        Math.max(0, READY_FOR_GUESSER_DELAY_SECONDS - elapsed)
+      );
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 250);
+    return () => window.clearInterval(interval);
+  }, [gameStatus, allCluesSubmitted, currentWordKey]);
 
   // Guesser give-up: mark every clue invisible so the existing zero-clue
   // roundLost path runs for all clients (same loss UI, no new column).
@@ -2049,12 +2076,20 @@ export default function GameRoom() {
                           </p>
                         </div>
 
-                        {/* READY Button */}
+                        {/* READY Button — disabled for READY_FOR_GUESSER_DELAY_SECONDS */}
                         <button
+                          type="button"
                           onClick={handleConfirmCluesReady}
-                          className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm"
+                          disabled={readyDelaySeconds > 0}
+                          className={
+                            readyDelaySeconds > 0
+                              ? 'px-5 py-2.5 bg-slate-700 text-amber-400 border border-amber-500/30 font-extrabold rounded-xl shadow-lg cursor-not-allowed select-none text-sm tracking-wide'
+                              : 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 text-sm'
+                          }
                         >
-                          READY FOR GUESSER
+                          {readyDelaySeconds > 0
+                            ? `READY IN ${readyDelaySeconds}…`
+                            : 'READY FOR GUESSER'}
                         </button>
                       </div>
 
