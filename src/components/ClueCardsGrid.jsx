@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 /** Same placeholder the guesser sees for peers' submitted clues during clue-giving. */
 export const MASKED_CLUE_PLACEHOLDER = '******';
@@ -27,6 +27,9 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * Pass `bonkingPlayerKey` to play the shared rotating card-shake animation.
  * Pass `lockInPlayerKey` for a brief local "locks in" scale on submit.
  * Pass `staggerEnter` to fade/slide cards in with a light stagger on round start.
+ *
+ * Waiting-slot keys are stable per playerKey so submit / take-back morphs the
+ * same card instead of remounting and re-firing round-enter.
  */
 export default function ClueCardsGrid({
   clues,
@@ -59,6 +62,10 @@ export default function ClueCardsGrid({
   staggerEnter = false,
 }) {
   const ownEntryInputRef = useRef(null);
+  // One-shot round-enter keys for this grid mount only — never re-added after
+  // clear/lock-in, so submit/take-back cannot re-fire slide-in.
+  const [enteringKeys, setEnteringKeys] = useState(() => new Set());
+  const enterSeededRef = useRef(false);
 
   const canTakeBack =
     Boolean(takeBackPlayerKey) && typeof onTakeBack === 'function';
@@ -88,6 +95,31 @@ export default function ClueCardsGrid({
     return () => window.cancelAnimationFrame(frame);
   }, [showOwnEntry]);
 
+  // Seed enter keys once when stagger is on and slots exist (round/phase mount).
+  useEffect(() => {
+    if (!staggerEnter || enterSeededRef.current) return undefined;
+    if (!Array.isArray(clues) || clues.length === 0) return undefined;
+    enterSeededRef.current = true;
+    const keys = new Set(
+      clues.map((c, idx) => c?.playerKey || `slot-${idx}`)
+    );
+    setEnteringKeys(keys);
+    // Longest stagger (~40ms * n) + 280ms enter; clear with buffer.
+    const timer = window.setTimeout(() => setEnteringKeys(new Set()), 700);
+    return () => window.clearTimeout(timer);
+  }, [staggerEnter, clues]);
+
+  // Submit lock-in: drop that slot from entering so lock-in end cannot re-slide.
+  useEffect(() => {
+    if (!lockInPlayerKey) return;
+    setEnteringKeys((prev) => {
+      if (!prev.has(lockInPlayerKey)) return prev;
+      const next = new Set(prev);
+      next.delete(lockInPlayerKey);
+      return next;
+    });
+  }, [lockInPlayerKey]);
+
   if (!Array.isArray(clues) || clues.length === 0) return null;
 
   return (
@@ -99,6 +131,12 @@ export default function ClueCardsGrid({
         const hasClueText = Boolean(c?.clue);
         const displayClue = hasClueText ? c.clue : waitingDisplay ? '' : null;
         if (displayClue === null) return null;
+
+        // Waiting slots: stable per player so submit/take-back does not remount.
+        // Filter/results: include clue text so distinct rows stay distinct.
+        const slotKey = waitingDisplay
+          ? c.playerKey || `slot-${idx}`
+          : `${c.playerKey || 'p'}-${idx}-${displayClue}`;
 
         const showTyping =
           waitingDisplay && !hasClueText && Boolean(c?.isTyping);
@@ -179,12 +217,15 @@ export default function ClueCardsGrid({
                     ? `${submittedChrome} cursor-pointer hover:border-slate-500`
                     : `${submittedChrome} ${canToggle ? 'hover:border-sky-400/60 cursor-pointer' : 'cursor-default'}`;
 
-        const enterClass = staggerEnter ? ' round-enter-card' : '';
+        // Enter only while this slot is in the one-shot set (round start).
+        // Bonk/lock-in CSS specificity wins if both classes briefly overlap.
+        const showEnter = enteringKeys.has(slotKey);
+        const enterClass = showEnter ? ' round-enter-card' : '';
         const cardClass = `clue-card-chrome p-3.5 rounded-xl text-center border select-none relative ${baseChrome}${
           isCardBonking ? ' clue-card-bonk-shake' : ''
         }${isLockingIn ? ' clue-lock-in' : ''}${enterClass}`;
 
-        const enterStyle = staggerEnter
+        const enterStyle = showEnter
           ? { '--enter-delay': `${idx * 40}ms` }
           : undefined;
 
@@ -194,17 +235,32 @@ export default function ClueCardsGrid({
           </p>
         );
 
-        if (isOwnEntryCard) {
-          return (
-            <div
-              key={`${c.playerKey || 'p'}-${idx}-entry`}
-              role="group"
-              aria-label="Enter your clue"
-              title="Enter your clue"
-              onClick={() => ownEntryInputRef.current?.focus()}
-              className={`${cardClass} w-full`}
-              style={enterStyle}
-            >
+        const statusBadge = isManuallyHidden ? (
+          <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
+            HIDDEN
+          </span>
+        ) : isExactDup ? (
+          <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-slate-500/20 text-slate-300 border border-slate-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
+            DUPLICATE
+          </span>
+        ) : null;
+
+        const clueText = (
+          <p
+            className={`${clueWordClass} clue-word-hideable ${showHiddenVisual ? 'is-hidden' : ''} ${
+              showTyping || (waitingDisplay && !hasClueText) || isOwnEntryCard
+                ? 'min-h-[2rem] flex items-center justify-center'
+                : ''
+            }`}
+            {...(isInvisible
+              ? {
+                  'aria-label': isExactDup
+                    ? 'Duplicate clue'
+                    : 'Hidden clue',
+                }
+              : {})}
+          >
+            {isOwnEntryCard ? (
               <input
                 ref={ownEntryInputRef}
                 type="text"
@@ -235,97 +291,87 @@ export default function ClueCardsGrid({
                 autoComplete="off"
                 spellCheck={false}
               />
+            ) : showTyping ? (
+              <span
+                className="typing-indicator"
+                aria-label="typing"
+                title="Typing"
+              >
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </span>
+            ) : (
+              displayClue
+            )}
+          </p>
+        );
+
+        // Waiting: always the same element type + stable key so submit / take-back
+        // / bonk mode swaps reconcile in place (no remount → no re-entrance).
+        if (waitingDisplay) {
+          const waitingProps = isOwnEntryCard
+            ? {
+                role: 'group',
+                'aria-label': 'Enter your clue',
+                title: 'Enter your clue',
+                onClick: () => ownEntryInputRef.current?.focus(),
+              }
+            : isTakeBackCard
+              ? {
+                  role: 'button',
+                  tabIndex: 0,
+                  'aria-label': 'Change clue',
+                  title: 'Change clue',
+                  onClick: onTakeBack,
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onTakeBack?.();
+                    }
+                  },
+                }
+              : isBonkCard
+                ? {
+                    role: 'button',
+                    tabIndex: 0,
+                    'aria-label': `Bonk ${getPlayerName(c.playerKey, c.username)}`,
+                    title: 'Bonk',
+                    onClick: () => onBonk(c.playerKey),
+                    onKeyDown: (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onBonk?.(c.playerKey);
+                      }
+                    },
+                  }
+                : {};
+
+          return (
+            <div
+              key={slotKey}
+              className={`${cardClass} w-full`}
+              style={enterStyle}
+              {...waitingProps}
+            >
+              {statusBadge}
+              {clueText}
               {byline}
             </div>
           );
         }
 
-        const statusBadge = isManuallyHidden ? (
-          <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
-            HIDDEN
-          </span>
-        ) : isExactDup ? (
-          <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-slate-500/20 text-slate-300 border border-slate-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
-            DUPLICATE
-          </span>
-        ) : null;
-
-        const cardBody = (
-          <>
-            {statusBadge}
-
-            <p
-              className={`${clueWordClass} clue-word-hideable ${showHiddenVisual ? 'is-hidden' : ''} ${
-                showTyping || (waitingDisplay && !hasClueText)
-                  ? 'min-h-[2rem] flex items-center justify-center'
-                  : ''
-              }`}
-              {...(isInvisible
-                ? {
-                    'aria-label': isExactDup
-                      ? 'Duplicate clue'
-                      : 'Hidden clue',
-                  }
-                : {})}
-            >
-              {showTyping ? (
-                <span
-                  className="typing-indicator"
-                  aria-label="typing"
-                  title="Typing"
-                >
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
-                </span>
-              ) : (
-                displayClue
-              )}
-            </p>
-            {byline}
-          </>
-        );
-
-        if (isTakeBackCard) {
-          return (
-            <button
-              key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
-              type="button"
-              onClick={onTakeBack}
-              aria-label="Change clue"
-              title="Change clue"
-              className={`${cardClass} w-full`}
-              style={enterStyle}
-            >
-              {cardBody}
-            </button>
-          );
-        }
-
-        if (isBonkCard) {
-          return (
-            <button
-              key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
-              type="button"
-              onClick={() => onBonk(c.playerKey)}
-              aria-label={`Bonk ${getPlayerName(c.playerKey, c.username)}`}
-              title="Bonk"
-              className={`${cardClass} w-full`}
-              style={enterStyle}
-            >
-              {cardBody}
-            </button>
-          );
-        }
-
+        // Filter / results path (non-waiting): unchanged interactive div cards.
         return (
           <div
-            key={`${c.playerKey || 'p'}-${idx}-${displayClue}`}
+            key={slotKey}
             onClick={canToggle ? () => onToggleClue(c.clue) : undefined}
             className={cardClass}
             style={enterStyle}
           >
-            {cardBody}
+            {statusBadge}
+            {clueText}
+            {byline}
           </div>
         );
       })}
