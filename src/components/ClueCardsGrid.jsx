@@ -61,7 +61,8 @@ export default function ClueCardsGrid({
   const ownEntryInputRef = useRef(null);
   // Round-enter class must be one-shot: leaving it on permanently lets
   // `.round-enter-card { animation: ... }` override bonk / lock-in.
-  const [enterActive, setEnterActive] = useState(Boolean(staggerEnter));
+  const [enterPending, setEnterPending] = useState(Boolean(staggerEnter));
+  const enterActive = Boolean(staggerEnter) && enterPending;
 
   const canTakeBack =
     Boolean(takeBackPlayerKey) && typeof onTakeBack === 'function';
@@ -92,13 +93,9 @@ export default function ClueCardsGrid({
   }, [showOwnEntry]);
 
   useEffect(() => {
-    if (!staggerEnter) {
-      setEnterActive(false);
-      return undefined;
-    }
-    setEnterActive(true);
+    if (!staggerEnter) return undefined;
     // Longest stagger (~40ms * n) + 280ms enter; clear with buffer.
-    const timer = window.setTimeout(() => setEnterActive(false), 700);
+    const timer = window.setTimeout(() => setEnterPending(false), 700);
     return () => window.clearTimeout(timer);
   }, [staggerEnter]);
 
