@@ -1261,11 +1261,11 @@ export default function GameRoom() {
     if (!expectedText) return;
 
     clueTakeBackInFlightRef.current = true;
-    const previousClueText = myClue.clue || '';
     const snapshotBefore = submittedClues;
 
+    // Optimistic unsubmit + clear draft so the own-entry card opens empty.
     setSubmittedClues((prev) => prev.filter((c) => c.playerKey !== CLIENT_ID));
-    setMyClueInput(previousClueText);
+    setMyClueInput('');
 
     try {
       const { ok, error, clues, aborted } = await casUpdateSubmittedClues(
