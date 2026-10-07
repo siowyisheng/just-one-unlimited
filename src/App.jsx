@@ -192,6 +192,9 @@ const guesserTurnStartedAtOf = (word) =>
 const isGuessRoundTimedOut = (word) =>
   Boolean(typeof word === 'object' && word && word.timedOut);
 
+const isGuessRoundGaveUp = (word) =>
+  Boolean(typeof word === 'object' && word && word.gaveUp);
+
 export default function GameRoom() {
   const [sessionId, setSessionId] = useState(null);
   const [wordList, setWordList] = useState([]);
@@ -464,8 +467,9 @@ export default function GameRoom() {
 
   const guesserTurnStartedAt = guesserTurnStartedAtOf(currentWord);
   const roundTimedOut = isGuessRoundTimedOut(currentWord);
+  const roundGaveUp = isGuessRoundGaveUp(currentWord);
 
-  // True while the guesser still has at least one visible clue (not give-up / wiped).
+  // True while the guesser still has at least one visible clue (not wiped).
   const hasVisibleGuessClues = () => {
     const clues = submittedCluesRef.current;
     const invalid = invalidCluesRef.current;
@@ -484,10 +488,10 @@ export default function GameRoom() {
     if (gameStatusRef.current !== 'guesser_turn') return;
     if (submittedGuessRef.current || roundWonRef.current) return;
     // Give-up / zero-clue loss already ended the round — leave that path alone.
-    if (!hasVisibleGuessClues()) return;
+    if (isGuessRoundGaveUp(currentWordRef.current) || !hasVisibleGuessClues()) return;
 
     const word = currentWordRef.current;
-    if (typeof word !== 'object' || !word || word.timedOut) return;
+    if (typeof word !== 'object' || !word || word.timedOut || word.gaveUp) return;
     if (!word.guesserTurnStartedAt) return;
 
     const expectedText = String(keywordText(word) ?? '').trim();
@@ -528,7 +532,8 @@ export default function GameRoom() {
       gameStatus !== 'guesser_turn' ||
       roundWon ||
       submittedGuess ||
-      roundTimedOut
+      roundTimedOut ||
+      roundGaveUp
     ) {
       setGuessCountdownSeconds(GUESS_COUNTDOWN_SECONDS);
       setGuessCountdownProgress(1);
@@ -555,7 +560,11 @@ export default function GameRoom() {
         Math.max(0, Math.min(1, 1 - elapsedSec / GUESS_COUNTDOWN_SECONDS))
       );
 
-      if (elapsedSec >= GUESS_TIMEOUT_SECONDS && hasVisibleGuessClues()) {
+      if (
+        elapsedSec >= GUESS_TIMEOUT_SECONDS &&
+        !isGuessRoundGaveUp(currentWordRef.current) &&
+        hasVisibleGuessClues()
+      ) {
         fireGuessTimeoutRef.current?.();
       }
     };
@@ -568,6 +577,7 @@ export default function GameRoom() {
     roundWon,
     submittedGuess,
     roundTimedOut,
+    roundGaveUp,
     guesserTurnStartedAt,
   ]);
 
@@ -1447,6 +1457,7 @@ export default function GameRoom() {
           text: expectedText,
           guesserTurnStartedAt: getServerNowIso(),
           timedOut: false,
+          gaveUp: false,
         },
       })
       .eq('id', sessionId)
@@ -1492,7 +1503,7 @@ export default function GameRoom() {
     e.preventDefault();
     const trimmed = guessInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId) return;
-    if (isGuessRoundTimedOut(currentWord)) return;
+    if (isGuessRoundTimedOut(currentWord) || isGuessRoundGaveUp(currentWord)) return;
 
     const keyWordText = currentWord && typeof currentWord === 'object' ? currentWord.text : currentWord;
     const isMatch = trimmed.toLowerCase() === String(keyWordText ?? '').toLowerCase();
@@ -1554,7 +1565,7 @@ export default function GameRoom() {
   // 6. Handle "NEXT KEYWORD" Button Click (Advances Guesser & Word).
   // Concurrent clicks across clients are serialized in startNextRound via CAS
   // on current_word text + append-once dedupe into board_state.
-  // Clue givers always; guesser only on timeout / zero-visible-clue round losses.
+  // Clue givers always; guesser only on timeout / give-up / zero-visible-clue losses.
   const handleNextWord = async () => {
     if (!sessionId || advancingRoundRef.current) return;
     if (isGuesser) {
@@ -1562,7 +1573,7 @@ export default function GameRoom() {
         gameStatus === 'guesser_turn' &&
         !submittedGuess &&
         !roundWon &&
-        (roundTimedOut || !hasVisibleGuessClues());
+        (roundTimedOut || roundGaveUp || !hasVisibleGuessClues());
       if (!guesserMayAdvance) return;
     }
     advancingRoundRef.current = true;
@@ -1789,16 +1800,41 @@ export default function GameRoom() {
     return () => window.clearInterval(interval);
   }, [gameStatus, allCluesSubmitted, currentWordKey]);
 
-  // Guesser give-up: mark every clue invisible so the existing zero-clue
-  // roundLost path runs for all clients (same loss UI, no new column).
-  const handleConfirmGiveUp = () => {
+  // Guesser give-up: stamp gaveUp on current_word (same sync pattern as
+  // timedOut) so roundLost runs without wiping invalid_clues / visibility.
+  const handleConfirmGiveUp = async () => {
     if (!sessionId || !isGuesser) return;
-    const allNorms = submittedClues
-      .map((c) => (c?.clue ? normalizeClue(c.clue) : null))
-      .filter(Boolean);
-    const next = [...new Set([...invalidCluesRef.current, ...allNorms])];
-    persistInvalidClues(next);
+    if (gameStatusRef.current !== 'guesser_turn') return;
+    if (submittedGuessRef.current || roundWonRef.current) return;
+
+    const word = currentWordRef.current;
+    if (typeof word !== 'object' || !word || word.gaveUp || word.timedOut) return;
+
+    const expectedText = String(keywordText(word) ?? '').trim();
+    if (!expectedText) return;
+
     setShowGiveUpConfirm(false);
+
+    const { data, error } = await supabase
+      .from('game_sessions')
+      .update({
+        current_word: { ...word, gaveUp: true },
+      })
+      .eq('id', sessionId)
+      .eq('game_status', 'guesser_turn')
+      .is('submitted_guess', null)
+      .eq('current_word->>text', expectedText)
+      .select('id');
+
+    if (error) {
+      console.error('Error recording give-up:', error);
+      return;
+    }
+    if (data?.length) {
+      setCurrentWord((prev) =>
+        typeof prev === 'object' && prev ? { ...prev, gaveUp: true } : prev
+      );
+    }
   };
 
   // Auto-flag exact duplicate clues as invisible when all clues arrive
@@ -1843,7 +1879,7 @@ export default function GameRoom() {
     gameStatus === 'guesser_turn' &&
     !submittedGuess &&
     !roundWon &&
-    (visibleClues.length === 0 || roundTimedOut);
+    (visibleClues.length === 0 || roundTimedOut || roundGaveUp);
 
   useEffect(() => {
     if (!roundLost) lossPhraseRef.current = null;
@@ -1916,7 +1952,7 @@ export default function GameRoom() {
                   getPlayerName={getPlayerName}
                   clueWordClass={clueWordClass}
                 />
-                {/* Timeout / zero-clue loss: guesser and clue givers both see NEXT KEYWORD */}
+                {/* Timeout / give-up / zero-clue loss: both sides see NEXT KEYWORD */}
                 <button
                   type="button"
                   onClick={handleNextWord}
@@ -1932,7 +1968,7 @@ export default function GameRoom() {
           )}
 
           {/* GUESSER TURN PHASE */}
-          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && (!roundTimedOut || submittedGuess) && (
+          {gameStatus === 'guesser_turn' && visibleClues.length > 0 && !roundGaveUp && (!roundTimedOut || submittedGuess) && (
             <>
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col gap-6 shadow-xl relative">
 
