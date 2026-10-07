@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 /**
  * Shared clue cards grid used by the filter review phase, end-of-round
@@ -43,8 +43,6 @@ export default function ClueCardsGrid({
 }) {
   const ownEntryInputRef = useRef(null);
 
-  if (!Array.isArray(clues) || clues.length === 0) return null;
-
   const canTakeBack =
     Boolean(takeBackPlayerKey) && typeof onTakeBack === 'function';
   const canBonk = waitingDisplay && typeof onBonk === 'function';
@@ -52,6 +50,28 @@ export default function ClueCardsGrid({
     waitingDisplay &&
     Boolean(ownPlayerKey) &&
     typeof onClueDraftSubmit === 'function';
+
+  // Own empty card is showing (vs submitted take-back card). Used to focus the
+  // input when take-back clears the clue and re-enters edit mode.
+  const showOwnEntry =
+    canOwnEntry &&
+    Array.isArray(clues) &&
+    clues.some(
+      (c) =>
+        Boolean(c?.playerKey) &&
+        c.playerKey === ownPlayerKey &&
+        !c?.clue
+    );
+
+  useEffect(() => {
+    if (!showOwnEntry) return;
+    const frame = window.requestAnimationFrame(() => {
+      ownEntryInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showOwnEntry]);
+
+  if (!Array.isArray(clues) || clues.length === 0) return null;
 
   return (
     <div className="grid grid-cols-2 gap-3 w-full">
