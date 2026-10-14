@@ -144,6 +144,89 @@ const playVictorySound = () => {
   }
 };
 
+// Last 8s of a visible countdown. Gaps shrink from ~1s to ~80ms; pitch rises.
+const TIMER_BEEP_WINDOW_SECONDS = 8;
+
+let timerBeepAudioCtx = null;
+
+const timerBeepAudioContext = () => {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!timerBeepAudioCtx || timerBeepAudioCtx.state === 'closed') {
+    timerBeepAudioCtx = new AudioCtx();
+  }
+  return timerBeepAudioCtx;
+};
+
+const unlockTimerBeepAudio = () => {
+  try {
+    const ctx = timerBeepAudioContext();
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+  } catch {
+    // Autoplay policies vary; the next gesture retries.
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', unlockTimerBeepAudio, { passive: true });
+  window.addEventListener('keydown', unlockTimerBeepAudio);
+}
+
+const timerBeepGapSeconds = (remaining) => {
+  const t = Math.max(0, Math.min(1, remaining / TIMER_BEEP_WINDOW_SECONDS));
+  return 0.08 + 0.92 * t * t;
+};
+
+const playTimerBeep = (urgency) => {
+  try {
+    const ctx = timerBeepAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const clamped = Math.max(0, Math.min(1, urgency));
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    const dur = 0.06 - clamped * 0.02;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660 + clamped * 520, now);
+    const peak = 0.06 + clamped * 0.05;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  } catch (err) {
+    console.error('Audio playback error:', err);
+  }
+};
+
+// Beeps on a shared deadline. No-op until the last 8s, then speeds up until 0.
+const scheduleAcceleratingBeeps = (deadlineMs) => {
+  let timeoutId = 0;
+  let cancelled = false;
+
+  const tick = () => {
+    if (cancelled) return;
+    const remaining = (deadlineMs - getServerNowMs()) / 1000;
+    if (remaining <= 0) return;
+    if (remaining > TIMER_BEEP_WINDOW_SECONDS) {
+      timeoutId = window.setTimeout(tick, (remaining - TIMER_BEEP_WINDOW_SECONDS) * 1000);
+      return;
+    }
+    playTimerBeep(1 - remaining / TIMER_BEEP_WINDOW_SECONDS);
+    const gap = Math.min(timerBeepGapSeconds(remaining), remaining);
+    timeoutId = window.setTimeout(tick, Math.max(40, gap * 1000));
+  };
+
+  tick();
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timeoutId);
+  };
+};
+
 const normalizeKeyword = (value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
 
 const keywordText = (item) => (typeof item === 'object' && item !== null ? item.text : item);
@@ -883,6 +966,8 @@ export default function GameRoom() {
   const guesserTurnStartedAt = guesserTurnStartedAtOf(currentWord);
   const roundTimedOut = isGuessRoundTimedOut(currentWord);
   const roundGaveUp = isGuessRoundGaveUp(currentWord);
+  const cluePhaseStartedAt = cluePhaseStartedAtOf(currentWord);
+  const cluePhaseTimedOut = isCluePhaseTimedOut(currentWord);
 
   // True while the guesser still has at least one visible clue (not wiped).
   const hasVisibleGuessClues = () => {
@@ -1140,6 +1225,44 @@ export default function GameRoom() {
     submittedClues,
     onlinePlayers,
   ]);
+
+  // Accelerating beeps for the last 8s of a countdown.
+  // Guess timer: every player. Clue timer: clue givers only, and only while
+  // clues are still being given. Check-clues has no countdown and no beeps.
+  // Unlimited clue rooms (the default) never enter this path.
+  const clueGiverCount = onlinePlayers.filter((player) => player.key !== currentGuesserId).length;
+  const clueGivingOpen =
+    gameStatus === 'in_round' &&
+    !isInfiniteGuessTimer(clueTimer) &&
+    !cluePhaseTimedOut &&
+    !(clueGiverCount > 0 && submittedClues.length >= clueGiverCount);
+  const isClueGiver = Boolean(currentGuesserId) && CLIENT_ID !== currentGuesserId;
+  const guessBeepDeadlineMs = (
+    !isInfiniteGuessTimer(guessTimer) &&
+    gameStatus === 'guesser_turn' &&
+    !roundWon &&
+    !submittedGuess &&
+    !roundTimedOut &&
+    !roundGaveUp &&
+    guesserTurnStartedAt
+  )
+    ? Date.parse(guesserTurnStartedAt) + Number(guessTimer) * 1000
+    : NaN;
+  const clueBeepDeadlineMs = (
+    clueGivingOpen &&
+    isClueGiver &&
+    cluePhaseStartedAt
+  )
+    ? Date.parse(cluePhaseStartedAt) + Number(clueTimer) * 1000
+    : NaN;
+  const beepDeadlineMs = Number.isFinite(guessBeepDeadlineMs)
+    ? guessBeepDeadlineMs
+    : clueBeepDeadlineMs;
+
+  useEffect(() => {
+    if (!Number.isFinite(beepDeadlineMs)) return undefined;
+    return scheduleAcceleratingBeeps(beepDeadlineMs);
+  }, [beepDeadlineMs]);
 
   // Fresh clue draft + visibility state whenever the keyword changes (skip / next round).
   useEffect(() => {
