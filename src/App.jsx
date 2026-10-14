@@ -14,6 +14,7 @@ import ClueRulesExpander from './components/ClueRulesExpander';
 import FeedbackWidget from './components/FeedbackWidget';
 import VersionChangelogWidget from './components/VersionChangelogWidget';
 import RoomSettings from './components/RoomSettings';
+import PastKeywordsWidget from './components/PastKeywordsFocus';
 import { STOCK_KEYWORDS } from './data/stockKeywords';
 import {
   DEFAULT_GUESS_TIMER,
@@ -2548,10 +2549,6 @@ export default function GameRoom() {
   const pastKeywords = (Array.isArray(playedKeywords) ? playedKeywords : []).filter(
     (item) => item && typeof item.text === 'string' && item.text.trim()
   );
-  const pastKeywordCorrect = pastKeywords.filter((item) => item.correct).length;
-  const pastKeywordPercent = pastKeywords.length === 0
-    ? 0
-    : Math.round((pastKeywordCorrect / pastKeywords.length) * 100);
   const roundLost =
     gameStatus === 'guesser_turn' &&
     !submittedGuess &&
@@ -3272,32 +3269,14 @@ export default function GameRoom() {
             </div>
           </div>
 
-          {pastKeywords.length > 0 && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col h-fit">
-              <div className="text-sm font-semibold mb-4 text-slate-200 flex items-center gap-1">
-                <span className="uppercase">Past Keywords ({pastKeywords.length}</span>
-                <span className="mx-0.5 h-3 w-px bg-slate-300 shrink-0" aria-hidden="true"></span>
-                <span>{pastKeywordPercent}%</span>
-                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                <span>)</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {pastKeywords.map((item, idx) => (
-                  <span
-                    key={`${item.text}-${idx}`}
-                    className={`text-xs font-bold px-2 py-0.5 rounded-full border text-amber-500 ${item.correct
-                      ? 'border-emerald-400'
-                      : 'border-rose-400'
-                      }`}
-                  >
-                    {item.text}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <PastKeywordsWidget
+            keywords={pastKeywords}
+            players={onlinePlayers.map((player) => ({
+              key: player.key,
+              username: player.username,
+              isMe: player.key === CLIENT_ID,
+            }))}
+          />
         </div>
       </div>
       <a
