@@ -456,7 +456,7 @@ function PastKeywordsModal({ keywords, players, percent, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex w-full max-w-lg max-h-[min(90svh,44rem)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-800 text-left shadow-2xl"
+        className="flex w-full max-w-3xl max-h-[min(90svh,44rem)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-800 text-left shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-slate-700 px-5 py-4">
@@ -510,11 +510,11 @@ function PastKeywordsModal({ keywords, players, percent, onClose }) {
           {players.length === 0 ? (
             <p className="text-sm text-slate-400">No players in the room.</p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {players.map((player) => (
                 <li
                   key={player.key}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium truncate ${
+                  className={`min-w-0 rounded-lg border px-3 py-2 text-sm font-medium truncate ${
                     player.isMe
                       ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
                       : 'border-slate-700/60 bg-slate-700/30 text-slate-200'
