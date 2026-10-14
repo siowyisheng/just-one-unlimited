@@ -2073,12 +2073,17 @@ export default function GameRoom() {
     // Hide status from real submitted text + synced invalid_clues so the
     // guesser's masked ****** cards mirror check-clues toggles live.
     // Never derived from the masked placeholder string.
+    // Duplicate chrome waits until every clue giver has submitted (Check
+    // Clues). Showing it earlier lets a giver who matched someone else
+    // take their clue back and rewrite it.
     let hideStatus = null;
     if (submitted?.clue) {
-      const isDup = isExactDuplicateClue(submitted.clue, submittedClues);
       const norm = normalizeClue(submitted.clue);
+      const isDup =
+        allCluesSubmitted &&
+        isExactDuplicateClue(submitted.clue, submittedClues);
       if (isDup) hideStatus = 'duplicate';
-      else if (invalidClues.includes(norm)) hideStatus = 'hidden';
+      else if (allCluesSubmitted && invalidClues.includes(norm)) hideStatus = 'hidden';
     }
     return {
       playerKey: p.key,

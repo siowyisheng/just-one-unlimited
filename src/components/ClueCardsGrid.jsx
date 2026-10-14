@@ -15,6 +15,8 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * Waiting rows may set `hideStatus: 'hidden' | 'duplicate'` (from real
  * submitted text + synced invalid_clues) so the guesser's masked cards
  * pick up the same live hide styling without revealing the clue word.
+ * Callers must leave `hideStatus` unset until every giver has submitted
+ * (Check Clues). Duplicate chrome during Give a Clue lets players edit.
  *
  * Set `waitingDisplay` during clue-giving so empty / masked text
  * (`''`, `******`) is not treated as duplicates or hideable, and so slots
