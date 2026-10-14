@@ -12,9 +12,10 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * strikethrough chrome plus a HIDDEN or DUPLICATE badge. Plain guesser-
  * masked `******` cards stay normal submitted chrome.
  *
- * Waiting rows may set `hideStatus: 'hidden' | 'duplicate'` (from real
- * submitted text + synced invalid_clues) so the guesser's masked cards
- * pick up the same live hide styling without revealing the clue word.
+ * Waiting rows may set `hideStatus: 'hidden' | 'duplicate' | 'outOfTime'`
+ * (from real submitted text + synced invalid_clues, or a timed-out long
+ * dash) so the guesser's cards pick up the same live hide styling.
+ * Out-of-time clues show the dash itself. Other masked cards stay `******`.
  * Callers must leave `hideStatus` unset until every giver has submitted
  * (Check Clues). Duplicate chrome during Give a Clue lets players edit.
  *
@@ -186,12 +187,18 @@ export default function ClueCardsGrid({
 
         // Prefer row hideStatus (waiting/masked path from App) so ****** cards
         // can mirror synced hides without using the placeholder as the clue.
-        const hideFromRow = c?.hideStatus === 'hidden' || c?.hideStatus === 'duplicate';
-        const isExactDup = hideFromRow
-          ? c.hideStatus === 'duplicate'
-          : !waitingDisplay &&
-            typeof isExactDuplicateClue === 'function' &&
-            isExactDuplicateClue(c.clue, clues);
+        const isOutOfTime = Boolean(c?.outOfTime) || c?.hideStatus === 'outOfTime';
+        const hideFromRow =
+          c?.hideStatus === 'hidden' ||
+          c?.hideStatus === 'duplicate' ||
+          c?.hideStatus === 'outOfTime';
+        const isExactDup = isOutOfTime
+          ? false
+          : hideFromRow
+            ? c.hideStatus === 'duplicate'
+            : !waitingDisplay &&
+              typeof isExactDuplicateClue === 'function' &&
+              isExactDuplicateClue(c.clue, clues);
         const norm =
           !waitingDisplay &&
           !hideFromRow &&
@@ -199,16 +206,19 @@ export default function ClueCardsGrid({
           c?.clue
             ? normalizeClue(c.clue)
             : '';
-        const isManuallyHidden = hideFromRow
-          ? c.hideStatus === 'hidden'
-          : !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
-        const isInvisible = isExactDup || isManuallyHidden;
+        const isManuallyHidden = isOutOfTime
+          ? false
+          : hideFromRow
+            ? c.hideStatus === 'hidden'
+            : !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
+        const isInvisible = isOutOfTime || isExactDup || isManuallyHidden;
         // Masked `******` alone is not hidden — only manual hide / exact-dup are.
         const showHiddenVisual = isInvisible;
         const canToggle =
           interactive &&
           !waitingDisplay &&
           !isExactDup &&
+          !isOutOfTime &&
           !isGuesser &&
           typeof onToggleClue === 'function';
 
@@ -217,7 +227,9 @@ export default function ClueCardsGrid({
           'bg-amber-500/10 border-amber-500/30 shadow-md';
 
         const submittedChrome = 'bg-slate-700/70 border-slate-600/80 shadow-md';
-        const baseChrome = isExactDup
+        const baseChrome = isOutOfTime
+          ? `opacity-50 bg-slate-900/60 border-amber-800/60 scale-[0.96] ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
+          : isExactDup
           ? `opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
           : isManuallyHidden
             ? `opacity-50 bg-slate-800/40 border-slate-700/50 scale-[0.97] ${canToggle ? 'cursor-pointer hover:border-sky-400/40' : 'cursor-default'}`
@@ -251,7 +263,11 @@ export default function ClueCardsGrid({
           </p>
         );
 
-        const statusBadge = isManuallyHidden ? (
+        const statusBadge = isOutOfTime ? (
+          <span className="absolute top-2 right-2 whitespace-nowrap text-[9px] font-extrabold bg-amber-500/15 text-amber-200 border border-amber-500/35 px-1.5 py-0.5 rounded uppercase tracking-wider">
+            OUT OF TIME
+          </span>
+        ) : isManuallyHidden ? (
           <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
             HIDDEN
           </span>
@@ -268,11 +284,13 @@ export default function ClueCardsGrid({
                 ? 'min-h-[2rem] flex items-center justify-center'
                 : ''
             }`}
-            {...(isInvisible
+              {...(isInvisible
               ? {
-                  'aria-label': isExactDup
-                    ? 'Duplicate clue'
-                    : 'Hidden clue',
+                  'aria-label': isOutOfTime
+                    ? 'Out of time'
+                    : isExactDup
+                      ? 'Duplicate clue'
+                      : 'Hidden clue',
                 }
               : {})}
           >
