@@ -15,7 +15,9 @@ export const MASKED_CLUE_PLACEHOLDER = '******';
  * Waiting rows may set `hideStatus: 'hidden' | 'duplicate' | 'outOfTime'`
  * (from real submitted text + synced invalid_clues, or a timed-out long
  * dash) so the guesser's cards pick up the same live hide styling.
- * Out-of-time clues show the dash itself. Other masked cards stay `******`.
+ * Out-of-time clues show the full em dash with an OUT OF TIME status.
+ * The dash is not struck through or covered by that status. Other masked
+ * cards stay `******`.
  * Callers must leave `hideStatus` unset until every giver has submitted
  * (Check Clues). Duplicate chrome during Give a Clue lets players edit.
  *
@@ -211,8 +213,9 @@ export default function ClueCardsGrid({
           : hideFromRow
             ? c.hideStatus === 'hidden'
             : !waitingDisplay && Boolean(norm) && invalidClues.includes(norm) && !isExactDup;
-        const isInvisible = isOutOfTime || isExactDup || isManuallyHidden;
+        const isInvisible = isExactDup || isManuallyHidden;
         // Masked `******` alone is not hidden — only manual hide / exact-dup are.
+        // Out-of-time keeps the dash intact; the status label carries the meaning.
         const showHiddenVisual = isInvisible;
         const canToggle =
           interactive &&
@@ -228,7 +231,7 @@ export default function ClueCardsGrid({
 
         const submittedChrome = 'bg-slate-700/70 border-slate-600/80 shadow-md';
         const baseChrome = isOutOfTime
-          ? `opacity-50 bg-slate-900/60 border-amber-800/60 scale-[0.96] ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
+          ? `bg-slate-900/70 border-amber-700/70 ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
           : isExactDup
           ? `opacity-50 bg-slate-900/60 border-slate-800 scale-[0.96] ${interactive ? 'cursor-not-allowed' : 'cursor-default'}`
           : isManuallyHidden
@@ -263,11 +266,13 @@ export default function ClueCardsGrid({
           </p>
         );
 
-        const statusBadge = isOutOfTime ? (
-          <span className="absolute top-2 right-2 whitespace-nowrap text-[9px] font-extrabold bg-amber-500/15 text-amber-200 border border-amber-500/35 px-1.5 py-0.5 rounded uppercase tracking-wider">
+        const outOfTimeStatus = isOutOfTime ? (
+          <p className="mt-1.5 inline-flex whitespace-nowrap text-[9px] font-extrabold bg-amber-500/15 text-amber-200 border border-amber-500/35 px-1.5 py-0.5 rounded uppercase tracking-wider">
             OUT OF TIME
-          </span>
-        ) : isManuallyHidden ? (
+          </p>
+        ) : null;
+
+        const statusBadge = isManuallyHidden ? (
           <span className="absolute top-2 right-2 text-[9px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider">
             HIDDEN
           </span>
@@ -279,20 +284,18 @@ export default function ClueCardsGrid({
 
         const clueText = (
           <p
-            className={`${clueWordClass} clue-word-hideable ${showHiddenVisual ? 'is-hidden' : ''} ${
+            className={`${clueWordClass} ${isOutOfTime ? '' : 'clue-word-hideable'} ${showHiddenVisual ? 'is-hidden' : ''} ${
               showTyping || (waitingDisplay && !hasClueText) || isOwnEntryCard
                 ? 'min-h-[2rem] flex items-center justify-center'
                 : ''
-            }`}
-              {...(isInvisible
-              ? {
-                  'aria-label': isOutOfTime
-                    ? 'Out of time'
-                    : isExactDup
-                      ? 'Duplicate clue'
-                      : 'Hidden clue',
-                }
-              : {})}
+            } ${isOutOfTime ? 'whitespace-nowrap' : ''}`}
+            {...(isOutOfTime
+              ? { 'aria-label': 'Out of time' }
+              : isInvisible
+                ? {
+                    'aria-label': isExactDup ? 'Duplicate clue' : 'Hidden clue',
+                  }
+                : {})}
           >
             {isOwnEntryCard ? (
               <input
@@ -390,6 +393,7 @@ export default function ClueCardsGrid({
             >
               {statusBadge}
               {clueText}
+              {outOfTimeStatus}
               {byline}
             </div>
           );
@@ -405,6 +409,7 @@ export default function ClueCardsGrid({
           >
             {statusBadge}
             {clueText}
+            {outOfTimeStatus}
             {byline}
           </div>
         );
