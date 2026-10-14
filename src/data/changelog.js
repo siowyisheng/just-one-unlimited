@@ -20,7 +20,7 @@
  */
 
 /** Displayed as `v{currentVersion}` in the bottom-right corner. */
-export const currentVersion = '0.3.2';
+export const currentVersion = '0.3.0';
 
 /**
  * Newest first. The UI lists every entry here.
@@ -28,25 +28,15 @@ export const currentVersion = '0.3.2';
  */
 export const releases = [
   {
-    version: '0.3.2',
-    date: '2026-10-14',
-    changes: [
-      'Feature: Click Past Keywords to open a recap you can save or copy as an image.',
-    ],
-  },
-  {
-    version: '0.3.1',
-    date: '2026-10-14',
-    changes: [
-      'Feature: The last 8 seconds of a countdown beep faster as time runs out. Everyone hears the guess timer. Only clue givers hear a clue timer, and only while giving clues.',
-    ],
-  },
-  {
     version: '0.3.0',
     date: '2026-10-14',
     changes: [
-      'Feature: Players can vote in Settings to change the guess timer (8s, 15s, 30s, 45s, 60s, or no limit).',
-      'Feature: Players can vote in Settings to add a clue timer. Clue givers have no time limit unless the room votes one in.',
+      'Feature: Players can focus on Past Keywords and save the memories.',
+      'Feature: Players can vote in Settings to change guesser time limits.',
+      'Feature: Players can vote in Settings to add/change cluegiver time limits.',
+      'Bugfix: Players can no longer see duplicate clues during clue-giving.',
+      'UIUX: Its easier to read longer keywords at round end.',
+      'UIUX: Players now hear accelerating beeps when their guesser/clue-giving timer is running out.',
     ],
   },
   {
