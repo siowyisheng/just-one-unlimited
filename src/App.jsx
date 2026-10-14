@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useId, useLayoutEffect, useRef } from 'react';
 import {
   supabase,
   measureServerTimeOffset,
@@ -26,6 +26,73 @@ function AddMoreKeywordsCard(props) {
       </div>
       <WordSubmissionWidget {...props} />
     </div>
+  );
+}
+
+/**
+ * Lets result keywords use the card's available width before truncating.
+ * When the text still cannot fit, pointer hover, keyboard focus, or a tap
+ * reveals the complete value in an immediate popover.
+ */
+function ResultKeyword({ className = '', children }) {
+  const textRef = useRef(null);
+  const tooltipId = useId();
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const text = String(children ?? '');
+
+  useLayoutEffect(() => {
+    const node = textRef.current;
+    if (!node) return undefined;
+
+    const measure = () => {
+      const nextIsOverflowing = node.scrollWidth > node.clientWidth + 1;
+      setIsOverflowing(nextIsOverflowing);
+      if (!nextIsOverflowing) setIsOpen(false);
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const toggleOpen = () => {
+    if (isOverflowing) setIsOpen((open) => !open);
+  };
+
+  return (
+    <span
+      className="result-keyword"
+      data-overflowing={isOverflowing || undefined}
+      data-open={isOpen || undefined}
+      role={isOverflowing ? 'button' : undefined}
+      tabIndex={isOverflowing ? 0 : undefined}
+      aria-expanded={isOverflowing ? isOpen : undefined}
+      aria-controls={isOverflowing ? tooltipId : undefined}
+      onClick={toggleOpen}
+      onBlur={() => setIsOpen(false)}
+      onKeyDown={(event) => {
+        if (!isOverflowing) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleOpen();
+        } else if (event.key === 'Escape') {
+          setIsOpen(false);
+        }
+      }}
+    >
+      <span ref={textRef} className={`${className} result-keyword__text`}>
+        {text}
+      </span>
+      {isOverflowing && (
+        <span id={tooltipId} role="tooltip" className="result-keyword__tooltip">
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -2276,15 +2343,15 @@ export default function GameRoom() {
                   </span>
                 </div>
               </div>
-              <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg mx-auto shadow-2xl text-center">
+              <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-xl mx-auto shadow-2xl text-center">
                 <h2 className="text-3xl font-black text-rose-400 tracking-wider">
                   {currentLossPhrase()}
                 </h2>
-                <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
+                <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700 min-w-0 max-w-full">
                   <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
-                  <p className={keywordClass}>
+                  <ResultKeyword className={keywordClass}>
                     {keyWordText}
-                  </p>
+                  </ResultKeyword>
                 </div>
                 <ClueCardsGrid
                   clues={submittedClues}
@@ -2448,16 +2515,16 @@ export default function GameRoom() {
 
                   {/* CASE 1 OR OVERRIDDEN: VICTORY STATE */}
                   {roundWon ? (
-                    <div className="flex flex-col items-center gap-4 bg-emerald-500/10 border border-emerald-500/40 p-8 rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in">
+                    <div className="flex flex-col items-center gap-4 bg-emerald-500/10 border border-emerald-500/40 p-8 rounded-2xl w-full max-w-xl shadow-2xl animate-fade-in">
                       <span className="text-5xl">🎉</span>
                       <h2 className={`text-3xl font-black text-emerald-400 tracking-wider${celebrateClass}`}>
                         {currentWinPhrase()}
                       </h2>
-                      <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
+                      <div className="bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700 min-w-0 max-w-full">
                         <p className="text-xs text-slate-400 uppercase tracking-widest">Keyword</p>
-                        <p className={`${keywordClass}${celebrateClass}`}>
+                        <ResultKeyword className={`${keywordClass}${celebrateClass}`}>
                           {keyWordText}
-                        </p>
+                        </ResultKeyword>
                       </div>
                       <ClueCardsGrid
                         clues={submittedClues}
@@ -2482,17 +2549,17 @@ export default function GameRoom() {
                     </div>
                   ) : (
                     /* CASE 2: INCORRECT GUESS STATE */
-                    <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-lg shadow-2xl">
-                      <div className="grid grid-cols-2 gap-4 w-full">
-                        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                    <div className="flex flex-col items-center gap-6 bg-slate-900/80 border border-rose-500/30 p-8 rounded-2xl w-full max-w-xl shadow-2xl">
+                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(7rem,2fr)_minmax(12rem,3fr)] gap-4 w-full">
+                        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 min-w-0">
                           <p className="text-xs text-slate-400 uppercase tracking-wider">Guess</p>
                           <p className="text-2xl font-bold text-rose-400 truncate">{submittedGuess}</p>
                         </div>
-                        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 min-w-0">
                           <p className="text-xs text-slate-400 uppercase tracking-wider">Keyword</p>
-                          <p className={`${keywordClass} truncate`}>
+                          <ResultKeyword className={keywordClass}>
                             {keyWordText}
-                          </p>
+                          </ResultKeyword>
                         </div>
                       </div>
                       <ClueCardsGrid
