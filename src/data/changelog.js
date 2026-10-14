@@ -20,13 +20,20 @@
  */
 
 /** Displayed as `v{currentVersion}` in the bottom-right corner. */
-export const currentVersion = '0.3.2';
+export const currentVersion = '0.3.3';
 
 /**
  * Newest first. The UI lists every entry here.
  * Keep bullets brief — one idea each.
  */
 export const releases = [
+  {
+    version: '0.3.3',
+    date: '2026-10-14',
+    changes: [
+      'UIUX: During Check Clues, the guesser sees a timed-out clue as the full long dash with an OUT OF TIME status.',
+    ],
+  },
   {
     version: '0.3.2',
     date: '2026-10-14',

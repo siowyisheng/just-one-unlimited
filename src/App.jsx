@@ -373,7 +373,8 @@ const isCluePhaseTimedOut = (word) =>
   Boolean(typeof word === 'object' && word && word.clueTimedOut);
 
 // Placeholder submitted for a clue giver who misses a voted clue-giving limit.
-// Force-hidden like an exact duplicate: the guesser never sees it, and check-clues cannot restore it.
+// Check-clues cannot restore it, and it never counts as a guessable clue.
+// During check clues the guesser still sees the full dash with OUT OF TIME.
 const OUT_OF_TIME_CLUE = '\u2014';
 
 const isOutOfTimeClue = (clue) => Boolean(clue?.outOfTime);
