@@ -1826,21 +1826,25 @@ export default function GameRoom() {
         ? clueTimersEqual(parsed.clueTimer, normalized)
         : guessTimersEqual(parsed.guessTimer, normalized);
       if (stillSame) return null;
+      const vote = {
+        id: voteId,
+        target: isClue ? 'clue' : 'guess',
+        proposerKey: CLIENT_ID,
+        proposerName,
+        from: serverCurrent,
+        to: normalized,
+        startedAt: getServerNowIso(),
+        resolvedAt: null,
+        votes: { [CLIENT_ID]: 'for' },
+        status: 'open',
+      };
+      if (voteReachesThreshold(vote, onlinePlayersRef.current)) {
+        return withPassedVote(parsed, vote);
+      }
       return {
         ...parsed,
         roomRevision: parsed.roomRevision + 1,
-        timerVote: {
-          id: voteId,
-          target: isClue ? 'clue' : 'guess',
-          proposerKey: CLIENT_ID,
-          proposerName,
-          from: serverCurrent,
-          to: normalized,
-          startedAt: getServerNowIso(),
-          resolvedAt: null,
-          votes: {},
-          status: 'open',
-        },
+        timerVote: vote,
       };
     });
   };
