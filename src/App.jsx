@@ -46,7 +46,9 @@ function ResultKeyword({ className = '', children }) {
     if (!node) return undefined;
 
     const measure = () => {
-      setIsOverflowing(node.scrollWidth > node.clientWidth + 1);
+      const nextIsOverflowing = node.scrollWidth > node.clientWidth + 1;
+      setIsOverflowing(nextIsOverflowing);
+      if (!nextIsOverflowing) setIsOpen(false);
     };
 
     measure();
@@ -56,10 +58,6 @@ function ResultKeyword({ className = '', children }) {
     observer.observe(node);
     return () => observer.disconnect();
   }, [text]);
-
-  useEffect(() => {
-    if (!isOverflowing) setIsOpen(false);
-  }, [isOverflowing]);
 
   const toggleOpen = () => {
     if (isOverflowing) setIsOpen((open) => !open);
