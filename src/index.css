@@ -439,6 +439,66 @@ code {
   text-decoration-color: currentColor;
 }
 
+/* Result keywords get the widest practical card first, then reveal on demand. */
+.result-keyword {
+  position: relative;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  outline: none;
+}
+
+.result-keyword__text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-keyword[data-overflowing] {
+  cursor: help;
+  touch-action: manipulation;
+}
+
+.result-keyword__tooltip {
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  top: calc(100% + 0.5rem);
+  width: max-content;
+  max-width: min(28rem, calc(100vw - 3rem));
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgb(71 85 105);
+  border-radius: 0.75rem;
+  background: rgb(15 23 42);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.4);
+  color: rgb(251 191 36);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -0.25rem);
+  visibility: hidden;
+}
+
+.result-keyword[data-open] .result-keyword__tooltip,
+.result-keyword:focus-visible .result-keyword__tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .result-keyword[data-overflowing]:hover .result-keyword__tooltip {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    visibility: visible;
+  }
+}
+
 /* READY / NEXT KEYWORD: brief green success pulse (one-shot) */
 @keyframes btn-success-pulse {
   0% {
