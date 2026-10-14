@@ -20,13 +20,20 @@
  */
 
 /** Displayed as `v{currentVersion}` in the bottom-right corner. */
-export const currentVersion = '0.2.0';
+export const currentVersion = '0.3.0';
 
 /**
  * Newest first. The UI lists every entry here.
  * Keep bullets brief — one idea each.
  */
 export const releases = [
+  {
+    version: '0.3.0',
+    date: '2026-10-14',
+    changes: [
+      'Feature: Players can vote in Settings to change the guess timer (8s, 15s, 30s, 45s, 60s, or no limit).',
+    ],
+  },
   {
     version: '0.2.0',
     date: '2026-10-08',
