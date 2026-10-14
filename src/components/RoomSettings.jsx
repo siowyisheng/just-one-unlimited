@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { GUESS_TIMER_OPTIONS, TIMER_VOTE_SECONDS } from '../guessTimer';
+import { GUESS_TIMER_OPTIONS, TIMER_VOTE_SECONDS, timerVoteTarget } from '../guessTimer';
 import { getServerNowMs } from '../supabaseClient';
 
 function GearIcon({ className = 'w-5 h-5' }) {
@@ -57,8 +57,19 @@ function voteSecondsLeft(startedAt) {
   return Math.max(0, Math.ceil(TIMER_VOTE_SECONDS - elapsed));
 }
 
+const TIMER_ROWS = [
+  { target: 'guess', label: 'Guess Timer' },
+  { target: 'clue', label: 'Clue Timer' },
+];
+
+function timerAria(label, value) {
+  const name = label.toLowerCase();
+  return value === 'infinity' ? `${name}, no limit` : `${name}, ${value} seconds`;
+}
+
 export default function RoomSettings({
   guessTimer,
+  clueTimer,
   timerVote,
   onlinePlayers,
   myPlayerKey,
@@ -67,7 +78,7 @@ export default function RoomSettings({
   onCastVote,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [optionsFor, setOptionsFor] = useState(null);
   const [voteSeconds, setVoteSeconds] = useState(TIMER_VOTE_SECONDS);
   const [closedForVoteId, setClosedForVoteId] = useState(null);
   const menuRef = useRef(null);
@@ -78,7 +89,7 @@ export default function RoomSettings({
   if (timerVote && closedForVoteId !== timerVote.id) {
     setClosedForVoteId(timerVote.id);
     setMenuOpen(false);
-    setOptionsOpen(false);
+    setOptionsFor(null);
   }
 
   useEffect(() => {
@@ -86,7 +97,7 @@ export default function RoomSettings({
     const onPointerDown = (event) => {
       if (menuRef.current?.contains(event.target)) return;
       setMenuOpen(false);
-      setOptionsOpen(false);
+      setOptionsFor(null);
     };
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
@@ -132,7 +143,7 @@ export default function RoomSettings({
           title="Settings"
           onClick={() => {
             setMenuOpen((open) => {
-              if (open) setOptionsOpen(false);
+              if (open) setOptionsFor(null);
               return !open;
             });
           }}
@@ -142,53 +153,60 @@ export default function RoomSettings({
         </button>
 
         {menuOpen && (
-          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-800 p-3 shadow-2xl text-left">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-slate-200">Guess Timer</span>
-              <button
-                type="button"
-                aria-expanded={optionsOpen}
-                aria-label={guessTimer === 'infinity' ? 'Guess timer, no limit' : `Guess timer, ${guessTimer} seconds`}
-                onClick={() => setOptionsOpen((open) => !open)}
-                className="inline-flex items-center justify-center min-w-12 px-2 py-1 rounded-lg bg-slate-900 border border-slate-600 text-sm font-bold text-amber-300 hover:border-amber-400/70 transition-colors cursor-pointer"
-              >
-                <TimerFace value={guessTimer} className={guessTimer === 'infinity' ? 'w-5 h-5' : ''} />
-              </button>
-            </div>
-
-            {optionsOpen && (
-              <div className="mt-2 flex flex-col gap-1" role="listbox" aria-label="Guess timer options">
-                {GUESS_TIMER_OPTIONS.map((option) => {
-                  const current = option === guessTimer;
-                  const disabled = current || voteOpen;
-                  return (
+          <div className="absolute right-0 mt-2 w-60 rounded-xl border border-slate-700 bg-slate-800 p-3 shadow-2xl text-left flex flex-col gap-3">
+            {TIMER_ROWS.map((row) => {
+              const value = row.target === 'clue' ? clueTimer : guessTimer;
+              const open = optionsFor === row.target;
+              return (
+                <div key={row.target}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-slate-200">{row.label}</span>
                     <button
-                      key={String(option)}
                       type="button"
-                      role="option"
-                      aria-selected={current}
-                      aria-label={option === 'infinity' ? 'No limit' : `${option} seconds`}
-                      disabled={disabled}
-                      onClick={() => {
-                        if (disabled) return;
-                        setOptionsOpen(false);
-                        setMenuOpen(false);
-                        onPropose(option);
-                      }}
-                      className={`inline-flex items-center justify-center px-2 py-1.5 rounded-lg text-sm font-bold transition-colors ${
-                        current
-                          ? 'bg-slate-900 text-amber-300 border border-amber-500/40 cursor-default'
-                          : disabled
-                            ? 'text-slate-500 cursor-not-allowed'
-                            : 'text-slate-200 hover:bg-slate-700 cursor-pointer'
-                      }`}
+                      aria-expanded={open}
+                      aria-label={timerAria(row.label, value)}
+                      onClick={() => setOptionsFor((current) => (current === row.target ? null : row.target))}
+                      className="inline-flex items-center justify-center min-w-12 px-2 py-1 rounded-lg bg-slate-900 border border-slate-600 text-sm font-bold text-amber-300 hover:border-amber-400/70 transition-colors cursor-pointer"
                     >
-                      <TimerFace value={option} className={option === 'infinity' ? 'w-5 h-5' : ''} />
+                      <TimerFace value={value} className={value === 'infinity' ? 'w-5 h-5' : ''} />
                     </button>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                  {open && (
+                    <div className="mt-2 flex flex-col gap-1" role="listbox" aria-label={`${row.label} options`}>
+                      {GUESS_TIMER_OPTIONS.map((option) => {
+                        const current = option === value;
+                        const disabled = current || voteOpen;
+                        return (
+                          <button
+                            key={String(option)}
+                            type="button"
+                            role="option"
+                            aria-selected={current}
+                            aria-label={option === 'infinity' ? 'No limit' : `${option} seconds`}
+                            disabled={disabled}
+                            onClick={() => {
+                              if (disabled) return;
+                              setOptionsFor(null);
+                              setMenuOpen(false);
+                              onPropose(row.target, option);
+                            }}
+                            className={`inline-flex items-center justify-center px-2 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                              current
+                                ? 'bg-slate-900 text-amber-300 border border-amber-500/40 cursor-default'
+                                : disabled
+                                  ? 'text-slate-500 cursor-not-allowed'
+                                  : 'text-slate-200 hover:bg-slate-700 cursor-pointer'
+                            }`}
+                          >
+                            <TimerFace value={option} className={option === 'infinity' ? 'w-5 h-5' : ''} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -205,7 +223,7 @@ export default function RoomSettings({
               {votePassed ? 'Changed' : 'Vote'}
             </h2>
             <p className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm text-slate-300">
-              <span>Guess Timer</span>
+              <span>{timerVoteTarget(timerVote) === 'clue' ? 'Clue Timer' : 'Guess Timer'}</span>
               <span className="inline-flex items-center font-bold text-slate-100">
                 <TimerFace value={timerVote.from} className={timerVote.from === 'infinity' ? 'w-5 h-5' : ''} />
               </span>

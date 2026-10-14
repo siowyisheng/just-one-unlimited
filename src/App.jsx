@@ -17,14 +17,18 @@ import RoomSettings from './components/RoomSettings';
 import PastKeywordsWidget from './components/PastKeywordsFocus';
 import { STOCK_KEYWORDS } from './data/stockKeywords';
 import {
+  DEFAULT_CLUE_TIMER,
   DEFAULT_GUESS_TIMER,
   GUESS_TIMEOUT_LEEWAY_SECONDS,
   TIMER_VOTE_RESULT_MS,
   TIMER_VOTE_SECONDS,
+  clueTimersEqual,
   guessTimersEqual,
   isInfiniteGuessTimer,
+  normalizeClueTimer,
   normalizeGuessTimer,
   normalizeTimerVote,
+  timerVoteTarget,
   voteReachesThreshold,
 } from './guessTimer';
 
@@ -139,6 +143,89 @@ const playVictorySound = () => {
   } catch (err) {
     console.error('Audio playback error:', err);
   }
+};
+
+// Last 8s of a visible countdown. Gaps shrink from ~1s to ~80ms; pitch rises.
+const TIMER_BEEP_WINDOW_SECONDS = 8;
+
+let timerBeepAudioCtx = null;
+
+const timerBeepAudioContext = () => {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!timerBeepAudioCtx || timerBeepAudioCtx.state === 'closed') {
+    timerBeepAudioCtx = new AudioCtx();
+  }
+  return timerBeepAudioCtx;
+};
+
+const unlockTimerBeepAudio = () => {
+  try {
+    const ctx = timerBeepAudioContext();
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+  } catch {
+    // Autoplay policies vary; the next gesture retries.
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', unlockTimerBeepAudio, { passive: true });
+  window.addEventListener('keydown', unlockTimerBeepAudio);
+}
+
+const timerBeepGapSeconds = (remaining) => {
+  const t = Math.max(0, Math.min(1, remaining / TIMER_BEEP_WINDOW_SECONDS));
+  return 0.08 + 0.92 * t * t;
+};
+
+const playTimerBeep = (urgency) => {
+  try {
+    const ctx = timerBeepAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const clamped = Math.max(0, Math.min(1, urgency));
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    const dur = 0.06 - clamped * 0.02;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660 + clamped * 520, now);
+    const peak = 0.06 + clamped * 0.05;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  } catch (err) {
+    console.error('Audio playback error:', err);
+  }
+};
+
+// Beeps on a shared deadline. No-op until the last 8s, then speeds up until 0.
+const scheduleAcceleratingBeeps = (deadlineMs) => {
+  let timeoutId = 0;
+  let cancelled = false;
+
+  const tick = () => {
+    if (cancelled) return;
+    const remaining = (deadlineMs - getServerNowMs()) / 1000;
+    if (remaining <= 0) return;
+    if (remaining > TIMER_BEEP_WINDOW_SECONDS) {
+      timeoutId = window.setTimeout(tick, (remaining - TIMER_BEEP_WINDOW_SECONDS) * 1000);
+      return;
+    }
+    playTimerBeep(1 - remaining / TIMER_BEEP_WINDOW_SECONDS);
+    const gap = Math.min(timerBeepGapSeconds(remaining), remaining);
+    timeoutId = window.setTimeout(tick, Math.max(40, gap * 1000));
+  };
+
+  tick();
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timeoutId);
+  };
 };
 
 const normalizeKeyword = (value) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
@@ -276,8 +363,22 @@ const isGuessRoundTimedOut = (word) =>
 const isGuessRoundGaveUp = (word) =>
   Boolean(typeof word === 'object' && word && word.gaveUp);
 
+const cluePhaseStartedAtOf = (word) =>
+  typeof word === 'object' && word && typeof word.cluePhaseStartedAt === 'string'
+    ? word.cluePhaseStartedAt
+    : null;
+
+const isCluePhaseTimedOut = (word) =>
+  Boolean(typeof word === 'object' && word && word.clueTimedOut);
+
+const beginCluePhase = (word) => (
+  word && typeof word === 'object'
+    ? { ...word, cluePhaseStartedAt: getServerNowIso() }
+    : word
+);
+
 // board_state: legacy array of { text, correct }, or
-// { keywords, playerStats, guessTimerSeconds, timerVote, roomRevision }.
+// { keywords, playerStats, guessTimerSeconds, clueTimerSeconds, timerVote, roomRevision }.
 // roomRevision is a compare-and-swap token so timer votes and round advances
 // do not overwrite each other.
 const emptyPlayerStat = () => ({
@@ -291,6 +392,7 @@ const emptyBoardState = () => ({
   keywords: [],
   playerStats: {},
   guessTimer: DEFAULT_GUESS_TIMER,
+  clueTimer: DEFAULT_CLUE_TIMER,
   timerVote: null,
   roomRevision: 0,
 });
@@ -312,6 +414,11 @@ const parseBoardState = (raw) => {
           ? raw.guessTimerSeconds
           : DEFAULT_GUESS_TIMER
       ),
+      clueTimer: normalizeClueTimer(
+        Object.prototype.hasOwnProperty.call(raw, 'clueTimerSeconds')
+          ? raw.clueTimerSeconds
+          : DEFAULT_CLUE_TIMER
+      ),
       timerVote: normalizeTimerVote(raw.timerVote),
       roomRevision: Number.isFinite(revision) ? revision : 0,
     };
@@ -323,6 +430,7 @@ const serializeBoardState = (parsed) => ({
   keywords: Array.isArray(parsed?.keywords) ? parsed.keywords : [],
   playerStats: parsed?.playerStats && typeof parsed.playerStats === 'object' ? parsed.playerStats : {},
   guessTimerSeconds: normalizeGuessTimer(parsed?.guessTimer),
+  clueTimerSeconds: normalizeClueTimer(parsed?.clueTimer),
   timerVote: parsed?.timerVote ?? null,
   roomRevision: Number.isFinite(Number(parsed?.roomRevision)) ? Number(parsed.roomRevision) : 0,
 });
@@ -495,6 +603,7 @@ export default function GameRoom() {
   const [playedKeywords, setPlayedKeywords] = useState([]);
   const [playerStats, setPlayerStats] = useState({});
   const [guessTimer, setGuessTimer] = useState(DEFAULT_GUESS_TIMER);
+  const [clueTimer, setClueTimer] = useState(DEFAULT_CLUE_TIMER);
   const [timerVote, setTimerVote] = useState(null);
   const advancingRoundRef = useRef(false);
   const skipKeywordInFlightRef = useRef(false);
@@ -641,8 +750,12 @@ export default function GameRoom() {
   const [guessCountdownSeconds, setGuessCountdownSeconds] = useState(DEFAULT_GUESS_TIMER);
   const [guessCountdownProgress, setGuessCountdownProgress] = useState(1);
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
+  const [clueCountdownSeconds, setClueCountdownSeconds] = useState(0);
+  const [clueCountdownProgress, setClueCountdownProgress] = useState(1);
   const [readyDelaySeconds, setReadyDelaySeconds] = useState(READY_FOR_GUESSER_DELAY_SECONDS);
   const guessTimeoutInFlightRef = useRef(false);
+  const clueTimeoutInFlightRef = useRef(false);
+  const clueStampInFlightRef = useRef(false);
   const fireGuessTimeoutRef = useRef(null);
 
   // Animated Dots State for "STARTING SOON..."
@@ -724,6 +837,10 @@ export default function GameRoom() {
   submittedCluesRef.current = submittedClues;
   const guessTimerRef = useRef(guessTimer);
   guessTimerRef.current = guessTimer;
+  const clueTimerRef = useRef(clueTimer);
+  clueTimerRef.current = clueTimer;
+  const currentGuesserIdRef = useRef(currentGuesserId);
+  currentGuesserIdRef.current = currentGuesserId;
   const timerVoteRef = useRef(timerVote);
   timerVoteRef.current = timerVote;
   const boardWriteChainRef = useRef(Promise.resolve());
@@ -850,6 +967,8 @@ export default function GameRoom() {
   const guesserTurnStartedAt = guesserTurnStartedAtOf(currentWord);
   const roundTimedOut = isGuessRoundTimedOut(currentWord);
   const roundGaveUp = isGuessRoundGaveUp(currentWord);
+  const cluePhaseStartedAt = cluePhaseStartedAtOf(currentWord);
+  const cluePhaseTimedOut = isCluePhaseTimedOut(currentWord);
 
   // True while the guesser still has at least one visible clue (not wiped).
   const hasVisibleGuessClues = () => {
@@ -906,6 +1025,87 @@ export default function GameRoom() {
     }
   };
   fireGuessTimeoutRef.current = fireGuessTimeout;
+
+  const cluesAlreadyComplete = () => {
+    const giverCount = onlinePlayersRef.current.filter(
+      (player) => player.key !== currentGuesserIdRef.current
+    ).length;
+    return giverCount > 0 && submittedCluesRef.current.length >= giverCount;
+  };
+
+  // Shared clue-phase start so every client counts the same deadline.
+  const stampCluePhaseStart = async () => {
+    if (!sessionId || clueStampInFlightRef.current) return;
+    if (gameStatusRef.current !== 'in_round') return;
+    if (isInfiniteGuessTimer(clueTimerRef.current)) return;
+    const word = currentWordRef.current;
+    if (typeof word !== 'object' || !word || word.cluePhaseStartedAt || word.clueTimedOut) return;
+    if (cluesAlreadyComplete()) return;
+    const expectedText = String(keywordText(word) ?? '').trim();
+    if (!expectedText) return;
+
+    clueStampInFlightRef.current = true;
+    const startedAt = getServerNowIso();
+    try {
+      const { data, error } = await supabase
+        .from('game_sessions')
+        .update({ current_word: { ...word, cluePhaseStartedAt: startedAt } })
+        .eq('id', sessionId)
+        .eq('game_status', 'in_round')
+        .eq('current_word->>text', expectedText)
+        .select('id');
+      if (error) {
+        console.error('Error stamping clue timer:', error);
+        return;
+      }
+      if (data?.length) {
+        setCurrentWord((prev) => (
+          typeof prev === 'object' && prev && !prev.cluePhaseStartedAt
+            ? { ...prev, cluePhaseStartedAt: startedAt }
+            : prev
+        ));
+      }
+    } finally {
+      clueStampInFlightRef.current = false;
+    }
+  };
+
+  // Clue-giving hard stop: lock further clues and open check-clues.
+  const fireClueTimeout = async () => {
+    if (!sessionId || clueTimeoutInFlightRef.current) return;
+    if (gameStatusRef.current !== 'in_round') return;
+    const giverCount = onlinePlayersRef.current.filter(
+      (player) => player.key !== currentGuesserIdRef.current
+    ).length;
+    if (giverCount === 0 || cluesAlreadyComplete()) return;
+    const word = currentWordRef.current;
+    if (typeof word !== 'object' || !word || word.clueTimedOut) return;
+    if (!word.cluePhaseStartedAt) return;
+    const expectedText = String(keywordText(word) ?? '').trim();
+    if (!expectedText) return;
+
+    clueTimeoutInFlightRef.current = true;
+    try {
+      const { data, error } = await supabase
+        .from('game_sessions')
+        .update({ current_word: { ...word, clueTimedOut: true } })
+        .eq('id', sessionId)
+        .eq('game_status', 'in_round')
+        .eq('current_word->>text', expectedText)
+        .select('id');
+      if (error) {
+        console.error('Error recording clue timeout:', error);
+        return;
+      }
+      if (data?.length) {
+        setCurrentWord((prev) => (
+          typeof prev === 'object' && prev ? { ...prev, clueTimedOut: true } : prev
+        ));
+      }
+    } finally {
+      clueTimeoutInFlightRef.current = false;
+    }
+  };
 
   // Shared countdown from current_word.guesserTurnStartedAt (set on READY).
   // UI: limit→0. Loss write: only after limit + leeway. No timer when unlimited.
@@ -981,6 +1181,89 @@ export default function GameRoom() {
       setClueWaitSeconds(0);
     };
   }, [gameStatus, currentWordKey]);
+
+  // Clue-giving countdown. Unlimited rooms keep the elapsed stopwatch instead.
+  // Missing start stamps are written once so every client shares the deadline.
+  useEffect(() => {
+    const limit = clueTimer;
+    const infinite = isInfiniteGuessTimer(limit);
+    const timedOut = isCluePhaseTimedOut(currentWord);
+    const startedAt = cluePhaseStartedAtOf(currentWord);
+    const allIn = cluesAlreadyComplete();
+
+    if (gameStatus !== 'in_round' || infinite || timedOut || allIn) {
+      setClueCountdownSeconds(typeof limit === 'number' ? limit : 0);
+      setClueCountdownProgress(1);
+      return undefined;
+    }
+
+    if (!startedAt) {
+      stampCluePhaseStart();
+      return undefined;
+    }
+
+    const startedMs = Date.parse(startedAt);
+    if (!Number.isFinite(startedMs)) return undefined;
+
+    const tick = () => {
+      const elapsedSec = (getServerNowMs() - startedMs) / 1000;
+      setClueCountdownSeconds(Math.max(0, limit - Math.floor(elapsedSec)));
+      setClueCountdownProgress(Math.max(0, Math.min(1, 1 - elapsedSec / limit)));
+      if (elapsedSec >= limit + GUESS_TIMEOUT_LEEWAY_SECONDS) {
+        fireClueTimeout();
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 100);
+    return () => window.clearInterval(interval);
+  }, [
+    gameStatus,
+    clueTimer,
+    currentWord,
+    currentWordKey,
+    currentGuesserId,
+    submittedClues,
+    onlinePlayers,
+  ]);
+
+  // Accelerating beeps for the last 8s of a countdown.
+  // Guess timer: every player. Clue timer: clue givers only, and only while
+  // clues are still being given. Check-clues has no countdown and no beeps.
+  // Unlimited clue rooms (the default) never enter this path.
+  const clueGiverCount = onlinePlayers.filter((player) => player.key !== currentGuesserId).length;
+  const clueGivingOpen =
+    gameStatus === 'in_round' &&
+    !isInfiniteGuessTimer(clueTimer) &&
+    !cluePhaseTimedOut &&
+    !(clueGiverCount > 0 && submittedClues.length >= clueGiverCount);
+  const isClueGiver = Boolean(currentGuesserId) && CLIENT_ID !== currentGuesserId;
+  const guessBeepDeadlineMs = (
+    !isInfiniteGuessTimer(guessTimer) &&
+    gameStatus === 'guesser_turn' &&
+    !roundWon &&
+    !submittedGuess &&
+    !roundTimedOut &&
+    !roundGaveUp &&
+    guesserTurnStartedAt
+  )
+    ? Date.parse(guesserTurnStartedAt) + Number(guessTimer) * 1000
+    : NaN;
+  const clueBeepDeadlineMs = (
+    clueGivingOpen &&
+    isClueGiver &&
+    cluePhaseStartedAt
+  )
+    ? Date.parse(cluePhaseStartedAt) + Number(clueTimer) * 1000
+    : NaN;
+  const beepDeadlineMs = Number.isFinite(guessBeepDeadlineMs)
+    ? guessBeepDeadlineMs
+    : clueBeepDeadlineMs;
+
+  useEffect(() => {
+    if (!Number.isFinite(beepDeadlineMs)) return undefined;
+    return scheduleAcceleratingBeeps(beepDeadlineMs);
+  }, [beepDeadlineMs]);
 
   // Fresh clue draft + visibility state whenever the keyword changes (skip / next round).
   useEffect(() => {
@@ -1074,6 +1357,7 @@ export default function GameRoom() {
           setPlayedKeywords(parsed.keywords);
           setPlayerStats(parsed.playerStats);
           setGuessTimer(parsed.guessTimer);
+          setClueTimer(parsed.clueTimer);
           setTimerVote(parsed.timerVote);
         }
 
@@ -1281,6 +1565,7 @@ export default function GameRoom() {
         setPlayedKeywords(parsed.keywords);
         setPlayerStats(parsed.playerStats);
         setGuessTimer(parsed.guessTimer);
+        setClueTimer(parsed.clueTimer);
         setTimerVote(parsed.timerVote);
       }
       setSubmittedGuess(data.submitted_guess ?? null);
@@ -1430,7 +1715,7 @@ export default function GameRoom() {
     const { data: updated, error } = await applyAdvanceUpdate({
       game_status: 'in_round',
       current_guesser_id: pick.chosenGuesser.key,
-      current_word: pick.selectedWord,
+      current_word: beginCluePhase(pick.selectedWord),
       submitted_clues: [],
       invalid_clues: [],
       submitted_guess: null,
@@ -1462,6 +1747,7 @@ export default function GameRoom() {
     setPlayedKeywords(parsed.keywords);
     setPlayerStats(parsed.playerStats);
     setGuessTimer(parsed.guessTimer);
+    setClueTimer(parsed.clueTimer);
     setTimerVote(parsed.timerVote);
     return parsed;
   };
@@ -1508,23 +1794,47 @@ export default function GameRoom() {
     return queued;
   };
 
-  const proposeGuessTimer = (nextTimer) => {
-    const normalized = normalizeGuessTimer(nextTimer);
-    if (guessTimersEqual(normalized, guessTimerRef.current)) return;
-    if (timerVoteRef.current) return;
+  const withPassedVote = (parsed, vote) => {
+    const next = {
+      ...parsed,
+      roomRevision: parsed.roomRevision + 1,
+      timerVote: {
+        ...vote,
+        status: 'passed',
+        resolvedAt: getServerNowIso(),
+      },
+    };
+    if (timerVoteTarget(vote) === 'clue') next.clueTimer = vote.to;
+    else next.guessTimer = vote.to;
+    return next;
+  };
+
+  const proposeRoomTimer = (target, nextTimer) => {
+    const isClue = target === 'clue';
+    const normalized = isClue ? normalizeClueTimer(nextTimer) : normalizeGuessTimer(nextTimer);
+    const current = isClue ? clueTimerRef.current : guessTimerRef.current;
+    const unchanged = isClue
+      ? clueTimersEqual(normalized, current)
+      : guessTimersEqual(normalized, current);
+    if (unchanged || timerVoteRef.current) return;
     const voteId = `vote_${CLIENT_ID}_${Date.now()}`;
     const proposerName = myUsernameRef.current;
     return commitBoardState((parsed) => {
       if (parsed.timerVote) return null;
-      if (guessTimersEqual(parsed.guessTimer, normalized)) return null;
+      const serverCurrent = isClue ? parsed.clueTimer : parsed.guessTimer;
+      const stillSame = isClue
+        ? clueTimersEqual(parsed.clueTimer, normalized)
+        : guessTimersEqual(parsed.guessTimer, normalized);
+      if (stillSame) return null;
       return {
         ...parsed,
         roomRevision: parsed.roomRevision + 1,
         timerVote: {
           id: voteId,
+          target: isClue ? 'clue' : 'guess',
           proposerKey: CLIENT_ID,
           proposerName,
-          from: parsed.guessTimer,
+          from: serverCurrent,
           to: normalized,
           startedAt: getServerNowIso(),
           resolvedAt: null,
@@ -1543,16 +1853,7 @@ export default function GameRoom() {
       if (vote.votes[CLIENT_ID] === choice) return null;
       const nextVote = { ...vote, votes: { ...vote.votes, [CLIENT_ID]: choice } };
       if (voteReachesThreshold(nextVote, onlinePlayersRef.current)) {
-        return {
-          ...parsed,
-          roomRevision: parsed.roomRevision + 1,
-          guessTimer: vote.to,
-          timerVote: {
-            ...nextVote,
-            status: 'passed',
-            resolvedAt: getServerNowIso(),
-          },
-        };
+        return withPassedVote(parsed, nextVote);
       }
       return {
         ...parsed,
@@ -1566,16 +1867,7 @@ export default function GameRoom() {
     const vote = parsed.timerVote;
     if (!vote || vote.status !== 'open') return null;
     if (!voteReachesThreshold(vote, onlinePlayersRef.current)) return null;
-    return {
-      ...parsed,
-      roomRevision: parsed.roomRevision + 1,
-      guessTimer: vote.to,
-      timerVote: {
-        ...vote,
-        status: 'passed',
-        resolvedAt: getServerNowIso(),
-      },
-    };
+    return withPassedVote(parsed, vote);
   });
 
   const expireTimerVote = () => commitBoardState((parsed) => {
@@ -1584,16 +1876,7 @@ export default function GameRoom() {
     const elapsed = (getServerNowMs() - Date.parse(vote.startedAt)) / 1000;
     if (elapsed < TIMER_VOTE_SECONDS) return null;
     if (voteReachesThreshold(vote, onlinePlayersRef.current)) {
-      return {
-        ...parsed,
-        roomRevision: parsed.roomRevision + 1,
-        guessTimer: vote.to,
-        timerVote: {
-          ...vote,
-          status: 'passed',
-          resolvedAt: getServerNowIso(),
-        },
-      };
+      return withPassedVote(parsed, vote);
     }
     return {
       ...parsed,
@@ -1853,6 +2136,9 @@ export default function GameRoom() {
       if (String(keywordText(row.current_word) ?? '').trim() !== expectedText) {
         return { ok: false, error: null, clues: null, aborted: true };
       }
+      if (isCluePhaseTimedOut(row.current_word)) {
+        return { ok: false, error: null, clues: row.submitted_clues, aborted: true };
+      }
 
       const prev = Array.isArray(row.submitted_clues) ? row.submitted_clues : [];
       const next = mutate(prev);
@@ -1899,6 +2185,7 @@ export default function GameRoom() {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const trimmed = myClueInput.trim().replace(/\s+/g, '').toUpperCase();
     if (!trimmed || !sessionId || clueSubmitInFlightRef.current) return;
+    if (isCluePhaseTimedOut(currentWord)) return;
     if (submittedClues.some((c) => c.playerKey === CLIENT_ID)) return;
 
     const expectedText = String(keywordText(currentWord) ?? '').trim();
@@ -2277,6 +2564,7 @@ export default function GameRoom() {
     if (!sessionId || skipKeywordInFlightRef.current) return;
     if (gameStatus !== 'in_round') return;
     if (CLIENT_ID === currentGuesserId) return;
+    if (isCluePhaseTimedOut(currentWord)) return;
     // Skip window closes once check-clues / review starts.
     const clueGiverCount = onlinePlayers.filter((p) => p.key !== currentGuesserId).length;
     if (clueGiverCount > 0 && submittedClues.length >= clueGiverCount) return;
@@ -2350,7 +2638,7 @@ export default function GameRoom() {
       const { data: updated, error } = await applySkipUpdate({
         game_status: 'in_round',
         current_guesser_id: pick.chosenGuesser.key,
-        current_word: pick.selectedWord,
+        current_word: beginCluePhase(pick.selectedWord),
         submitted_clues: [],
         invalid_clues: [],
         submitted_guess: null,
@@ -2377,10 +2665,12 @@ export default function GameRoom() {
   const mySubmittedClue = submittedClues.find((c) => c.playerKey === CLIENT_ID) || null;
   const hasSubmittedMyClue = Boolean(mySubmittedClue);
   const allCluesSubmitted = submittedClues.length >= numClueGivers && numClueGivers > 0;
+  const clueTimedOut = isCluePhaseTimedOut(currentWord);
+  const cluePhaseClosed = allCluesSubmitted || clueTimedOut;
   const canTakeBackClue =
     !isGuesser &&
     hasSubmittedMyClue &&
-    !allCluesSubmitted &&
+    !cluePhaseClosed &&
     gameStatus === 'in_round';
 
   // Clue-giving waiting cards: one slot per clue giver. Mask others' clues
@@ -2444,13 +2734,13 @@ export default function GameRoom() {
 
   // Close skip affordance when check-clues starts (control unmounts too).
   useEffect(() => {
-    if (allCluesSubmitted) setSkipKeywordAffordanceOpen(false);
-  }, [allCluesSubmitted]);
+    if (cluePhaseClosed) setSkipKeywordAffordanceOpen(false);
+  }, [cluePhaseClosed]);
 
   // Client-local delay before READY: starts when review UI appears
   // (all clues in), not from earlier page load / clue-giving wait.
   useEffect(() => {
-    if (gameStatus !== 'in_round' || !allCluesSubmitted) {
+    if (gameStatus !== 'in_round' || !cluePhaseClosed) {
       setReadyDelaySeconds(READY_FOR_GUESSER_DELAY_SECONDS);
       return undefined;
     }
@@ -2468,7 +2758,7 @@ export default function GameRoom() {
     tick();
     const interval = window.setInterval(tick, 250);
     return () => window.clearInterval(interval);
-  }, [gameStatus, allCluesSubmitted, currentWordKey]);
+  }, [gameStatus, cluePhaseClosed, currentWordKey]);
 
   // Guesser give-up: stamp gaveUp on current_word (same sync pattern as
   // timedOut) so roundLost runs without wiping invalid_clues / visibility.
@@ -2511,7 +2801,7 @@ export default function GameRoom() {
   useEffect(() => {
     if (
       gameStatus === 'in_round' &&
-      allCluesSubmitted &&
+      cluePhaseClosed &&
       submittedClues.length > 0
     ) {
       const exactDupes = Array.from(getAutoDeduplicatedClues(submittedClues));
@@ -2527,7 +2817,7 @@ export default function GameRoom() {
         persistInvalidClues(combinedInvalid);
       }
     }
-  }, [allCluesSubmitted, submittedClues, gameStatus]);
+  }, [cluePhaseClosed, submittedClues, gameStatus]);
 
   const exactDuplicateClues = getAutoDeduplicatedClues(submittedClues);
   const visibleClues = submittedClues.filter((c) => {
@@ -2928,14 +3218,38 @@ export default function GameRoom() {
                   <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
                     {isGuesser
                       ? 'Wait for Clues'
-                      : allCluesSubmitted
+                      : cluePhaseClosed
                         ? 'Check Clues'
                         : 'Give a Clue'}
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
-                  ⏱️ {clueWaitSeconds}s
-                </div>
+                {!isInfiniteGuessTimer(clueTimer) && !cluePhaseClosed ? (
+                  <div
+                    className={`guess-countdown ${clueCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${clueCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
+                    role="timer"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    aria-label={`${clueCountdownSeconds} seconds remaining`}
+                  >
+                    <svg className="guess-countdown__ring" viewBox="0 0 36 36" aria-hidden="true">
+                      <circle className="guess-countdown__track" cx="18" cy="18" r="15.5" />
+                      <circle
+                        className="guess-countdown__progress"
+                        cx="18"
+                        cy="18"
+                        r="15.5"
+                        style={{
+                          strokeDasharray: `${clueCountdownProgress * 97.4} 97.4`,
+                        }}
+                      />
+                    </svg>
+                    <span className="guess-countdown__value">{clueCountdownSeconds}</span>
+                  </div>
+                ) : (
+                  <div className="font-mono text-base font-bold bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg text-slate-100">
+                    ⏱️ {clueWaitSeconds}s
+                  </div>
+                )}
               </div>
               {isGuesser ? (
                 /* GUESSER VIEW */
@@ -2974,7 +3288,7 @@ export default function GameRoom() {
                     <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">
                       Keyword
                     </p>
-                    {!allCluesSubmitted ? (
+                    {!cluePhaseClosed ? (
                       <div
                         ref={skipKeywordAnchorRef}
                         className="relative inline-flex flex-col items-center"
@@ -3021,7 +3335,7 @@ export default function GameRoom() {
                   </div>
 
                   {/* Waiting clue cards — own empty = inline entry; others bonk; own submitted = take-back */}
-                  {!allCluesSubmitted && (
+                  {!cluePhaseClosed && (
                     <ClueCardsGrid
                       key={`clues-${currentWordKey}`}
                       clues={clueGivingDisplayClues}
@@ -3050,10 +3364,10 @@ export default function GameRoom() {
                   )}
 
                   {/* Clue rules: clue givers only, Give a Clue phase — below CLUE cards */}
-                  {!allCluesSubmitted && <ClueRulesExpander />}
+                  {!cluePhaseClosed && <ClueRulesExpander />}
 
                   {/* Check clues: same CLUE card grid as clue-giving, then review + READY */}
-                  {allCluesSubmitted && (
+                  {cluePhaseClosed && (
                     <>
                       <ClueCardsGrid
                         clues={submittedClues}
@@ -3290,11 +3604,12 @@ export default function GameRoom() {
 
       <RoomSettings
         guessTimer={guessTimer}
+        clueTimer={clueTimer}
         timerVote={timerVote}
         onlinePlayers={onlinePlayers}
         myPlayerKey={CLIENT_ID}
         getPlayerName={getPlayerName}
-        onPropose={proposeGuessTimer}
+        onPropose={proposeRoomTimer}
         onCastVote={castTimerVote}
       />
       <FeedbackWidget />
