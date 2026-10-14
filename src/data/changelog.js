@@ -20,13 +20,20 @@
  */
 
 /** Displayed as `v{currentVersion}` in the bottom-right corner. */
-export const currentVersion = '0.3.1';
+export const currentVersion = '0.3.2';
 
 /**
  * Newest first. The UI lists every entry here.
  * Keep bullets brief — one idea each.
  */
 export const releases = [
+  {
+    version: '0.3.2',
+    date: '2026-10-14',
+    changes: [
+      'Feature: Click Past Keywords to open a recap you can save or copy as an image.',
+    ],
+  },
   {
     version: '0.3.1',
     date: '2026-10-14',
