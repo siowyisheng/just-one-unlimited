@@ -32,6 +32,7 @@ export const releases = [
     date: '2026-10-14',
     changes: [
       'Feature: Players can vote in Settings to change the guess timer (8s, 15s, 30s, 45s, 60s, or no limit).',
+      'Feature: Players can vote in Settings to add a clue timer. Clue givers have no time limit unless the room votes one in.',
     ],
   },
   {
