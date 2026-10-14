@@ -53,9 +53,12 @@ export const normalizeTimerVote = (raw) => {
       if (choice === 'for' || choice === 'against') votes[key] = choice;
     });
   }
+  const proposerKey = typeof raw.proposerKey === 'string' ? raw.proposerKey : '';
+  // Opening the vote is a yes. An explicit no still wins.
+  if (proposerKey && votes[proposerKey] !== 'against') votes[proposerKey] = 'for';
   return {
     id: raw.id,
-    proposerKey: typeof raw.proposerKey === 'string' ? raw.proposerKey : '',
+    proposerKey,
     proposerName:
       typeof raw.proposerName === 'string' && raw.proposerName.trim()
         ? raw.proposerName.trim()
