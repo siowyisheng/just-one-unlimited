@@ -28,6 +28,7 @@ import {
   normalizeClueTimer,
   normalizeGuessTimer,
   normalizeTimerVote,
+  phaseTimerLimitOf,
   timerVoteTarget,
   voteReachesThreshold,
 } from './guessTimer';
@@ -371,11 +372,18 @@ const cluePhaseStartedAtOf = (word) =>
 const isCluePhaseTimedOut = (word) =>
   Boolean(typeof word === 'object' && word && word.clueTimedOut);
 
-const beginCluePhase = (word) => (
-  word && typeof word === 'object'
-    ? { ...word, cluePhaseStartedAt: getServerNowIso() }
-    : word
-);
+// Pins the room's clue limit onto this keyword so a later vote cannot move
+// the countdown that is already running.
+const beginCluePhase = (word, limit) => {
+  const text = keywordText(word);
+  const base = word && typeof word === 'object' ? { ...word } : { text };
+  return {
+    ...base,
+    text,
+    cluePhaseStartedAt: getServerNowIso(),
+    cluePhaseLimit: normalizeClueTimer(limit),
+  };
+};
 
 // board_state: legacy array of { text, correct }, or
 // { keywords, playerStats, guessTimerSeconds, clueTimerSeconds, timerVote, roomRevision }.
@@ -969,6 +977,10 @@ export default function GameRoom() {
   const roundGaveUp = isGuessRoundGaveUp(currentWord);
   const cluePhaseStartedAt = cluePhaseStartedAtOf(currentWord);
   const cluePhaseTimedOut = isCluePhaseTimedOut(currentWord);
+  // Room settings update as soon as a vote passes. A phase that is already
+  // running keeps the limit pinned on the keyword.
+  const activeClueLimit = phaseTimerLimitOf(currentWord, 'cluePhaseLimit') ?? clueTimer;
+  const activeGuessLimit = phaseTimerLimitOf(currentWord, 'guessPhaseLimit') ?? guessTimer;
 
   // True while the guesser still has at least one visible clue (not wiped).
   const hasVisibleGuessClues = () => {
@@ -1037,19 +1049,22 @@ export default function GameRoom() {
   const stampCluePhaseStart = async () => {
     if (!sessionId || clueStampInFlightRef.current) return;
     if (gameStatusRef.current !== 'in_round') return;
-    if (isInfiniteGuessTimer(clueTimerRef.current)) return;
     const word = currentWordRef.current;
-    if (typeof word !== 'object' || !word || word.cluePhaseStartedAt || word.clueTimedOut) return;
+    if (typeof word !== 'object' || !word || word.clueTimedOut) return;
+    // Already pinned, or this phase started before limits were stored.
+    if (phaseTimerLimitOf(word, 'cluePhaseLimit') !== undefined || word.cluePhaseStartedAt) return;
+    if (isInfiniteGuessTimer(clueTimerRef.current)) return;
     if (cluesAlreadyComplete()) return;
     const expectedText = String(keywordText(word) ?? '').trim();
     if (!expectedText) return;
 
     clueStampInFlightRef.current = true;
     const startedAt = getServerNowIso();
+    const cluePhaseLimit = normalizeClueTimer(clueTimerRef.current);
     try {
       const { data, error } = await supabase
         .from('game_sessions')
-        .update({ current_word: { ...word, cluePhaseStartedAt: startedAt } })
+        .update({ current_word: { ...word, cluePhaseStartedAt: startedAt, cluePhaseLimit } })
         .eq('id', sessionId)
         .eq('game_status', 'in_round')
         .eq('current_word->>text', expectedText)
@@ -1061,7 +1076,7 @@ export default function GameRoom() {
       if (data?.length) {
         setCurrentWord((prev) => (
           typeof prev === 'object' && prev && !prev.cluePhaseStartedAt
-            ? { ...prev, cluePhaseStartedAt: startedAt }
+            ? { ...prev, cluePhaseStartedAt: startedAt, cluePhaseLimit }
             : prev
         ));
       }
@@ -1110,7 +1125,7 @@ export default function GameRoom() {
   // Shared countdown from current_word.guesserTurnStartedAt (set on READY).
   // UI: limit→0. Loss write: only after limit + leeway. No timer when unlimited.
   useEffect(() => {
-    const limit = guessTimer;
+    const limit = activeGuessLimit;
     const infinite = isInfiniteGuessTimer(limit);
 
     if (
@@ -1162,7 +1177,7 @@ export default function GameRoom() {
     roundTimedOut,
     roundGaveUp,
     guesserTurnStartedAt,
-    guessTimer,
+    activeGuessLimit,
   ]);
 
   // Ticking timer for the clue-giving phase, shown to every player.
@@ -1185,7 +1200,7 @@ export default function GameRoom() {
   // Clue-giving countdown. Unlimited rooms keep the elapsed stopwatch instead.
   // Missing start stamps are written once so every client shares the deadline.
   useEffect(() => {
-    const limit = clueTimer;
+    const limit = activeClueLimit;
     const infinite = isInfiniteGuessTimer(limit);
     const timedOut = isCluePhaseTimedOut(currentWord);
     const startedAt = cluePhaseStartedAtOf(currentWord);
@@ -1219,7 +1234,7 @@ export default function GameRoom() {
     return () => window.clearInterval(interval);
   }, [
     gameStatus,
-    clueTimer,
+    activeClueLimit,
     currentWord,
     currentWordKey,
     currentGuesserId,
@@ -1234,12 +1249,12 @@ export default function GameRoom() {
   const clueGiverCount = onlinePlayers.filter((player) => player.key !== currentGuesserId).length;
   const clueGivingOpen =
     gameStatus === 'in_round' &&
-    !isInfiniteGuessTimer(clueTimer) &&
+    !isInfiniteGuessTimer(activeClueLimit) &&
     !cluePhaseTimedOut &&
     !(clueGiverCount > 0 && submittedClues.length >= clueGiverCount);
   const isClueGiver = Boolean(currentGuesserId) && CLIENT_ID !== currentGuesserId;
   const guessBeepDeadlineMs = (
-    !isInfiniteGuessTimer(guessTimer) &&
+    !isInfiniteGuessTimer(activeGuessLimit) &&
     gameStatus === 'guesser_turn' &&
     !roundWon &&
     !submittedGuess &&
@@ -1247,14 +1262,14 @@ export default function GameRoom() {
     !roundGaveUp &&
     guesserTurnStartedAt
   )
-    ? Date.parse(guesserTurnStartedAt) + Number(guessTimer) * 1000
+    ? Date.parse(guesserTurnStartedAt) + Number(activeGuessLimit) * 1000
     : NaN;
   const clueBeepDeadlineMs = (
     clueGivingOpen &&
     isClueGiver &&
     cluePhaseStartedAt
   )
-    ? Date.parse(cluePhaseStartedAt) + Number(clueTimer) * 1000
+    ? Date.parse(cluePhaseStartedAt) + Number(activeClueLimit) * 1000
     : NaN;
   const beepDeadlineMs = Number.isFinite(guessBeepDeadlineMs)
     ? guessBeepDeadlineMs
@@ -1715,7 +1730,7 @@ export default function GameRoom() {
     const { data: updated, error } = await applyAdvanceUpdate({
       game_status: 'in_round',
       current_guesser_id: pick.chosenGuesser.key,
-      current_word: beginCluePhase(pick.selectedWord),
+      current_word: beginCluePhase(pick.selectedWord, parsedBoard.clueTimer),
       submitted_clues: [],
       invalid_clues: [],
       submitted_guess: null,
@@ -1754,14 +1769,15 @@ export default function GameRoom() {
 
   // Read-modify-write board_state under roomRevision so votes cannot clobber
   // a round advance (and the reverse). mutator returns the next parsed board,
-  // or null to leave the row alone.
+  // { board, currentWord } when the running phase limit must be pinned, or
+  // null to leave the row alone.
   const commitBoardState = (mutator) => {
     const run = async () => {
       if (!sessionId) return null;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const { data, error } = await supabase
           .from('game_sessions')
-          .select('board_state')
+          .select('board_state, game_status, current_word')
           .eq('id', sessionId)
           .single();
         if (error || !data) {
@@ -1769,20 +1785,36 @@ export default function GameRoom() {
           return null;
         }
         const parsed = parseBoardState(data.board_state);
-        const next = mutator(parsed);
-        if (!next) return parsed;
+        const session = { gameStatus: data.game_status, currentWord: data.current_word };
+        const result = mutator(parsed, session);
+        if (!result) return parsed;
+        const nextBoard = result.board ?? result;
+        const patch = { board_state: serializeBoardState(nextBoard) };
+        const lockedText = result.currentWord
+          ? String(keywordText(session.currentWord) ?? '').trim()
+          : '';
+        if (result.currentWord && lockedText) patch.current_word = result.currentWord;
+        let query = supabase
+          .from('game_sessions')
+          .update(patch)
+          .eq('id', sessionId);
+        if (patch.current_word) {
+          query = query
+            .eq('game_status', session.gameStatus)
+            .eq('current_word->>text', lockedText);
+        }
         const { data: updated, error: writeError } = await filterBoardRevision(
-          supabase
-            .from('game_sessions')
-            .update({ board_state: serializeBoardState(next) })
-            .eq('id', sessionId),
+          query,
           parsed.roomRevision
-        ).select('board_state');
+        ).select(patch.current_word ? 'board_state, current_word' : 'board_state');
         if (writeError) {
           console.error('Error saving room settings:', writeError);
           return null;
         }
         if (updated?.length) {
+          if (patch.current_word && updated[0].current_word !== undefined) {
+            setCurrentWord(updated[0].current_word);
+          }
           return applyParsedBoard(updated[0].board_state);
         }
       }
@@ -1794,7 +1826,30 @@ export default function GameRoom() {
     return queued;
   };
 
-  const withPassedVote = (parsed, vote) => {
+  // Pin the pre-vote limit onto the keyword when that phase is already running.
+  // The room setting still updates, so the next time the phase starts it uses
+  // the new value. A guess-timer vote during clue giving is not pinned here.
+  const lockCurrentPhaseTimer = (vote, session) => {
+    if (!session) return null;
+    const target = timerVoteTarget(vote);
+    const phaseIsCurrent = target === 'clue'
+      ? session.gameStatus === 'in_round'
+      : session.gameStatus === 'guesser_turn';
+    if (!phaseIsCurrent) return null;
+    const text = String(keywordText(session.currentWord) ?? '').trim();
+    if (!text) return null;
+    const key = target === 'clue' ? 'cluePhaseLimit' : 'guessPhaseLimit';
+    const base = session.currentWord && typeof session.currentWord === 'object'
+      ? { ...session.currentWord, text }
+      : { text };
+    if (phaseTimerLimitOf(base, key) !== undefined) return null;
+    const limit = target === 'clue'
+      ? normalizeClueTimer(vote.from)
+      : normalizeGuessTimer(vote.from);
+    return { ...base, [key]: limit };
+  };
+
+  const withPassedVote = (parsed, vote, session) => {
     const next = {
       ...parsed,
       roomRevision: parsed.roomRevision + 1,
@@ -1806,7 +1861,9 @@ export default function GameRoom() {
     };
     if (timerVoteTarget(vote) === 'clue') next.clueTimer = vote.to;
     else next.guessTimer = vote.to;
-    return next;
+    const locked = lockCurrentPhaseTimer(vote, session);
+    if (!locked) return next;
+    return { board: next, currentWord: locked };
   };
 
   const proposeRoomTimer = (target, nextTimer) => {
@@ -1819,7 +1876,7 @@ export default function GameRoom() {
     if (unchanged || timerVoteRef.current) return;
     const voteId = `vote_${CLIENT_ID}_${Date.now()}`;
     const proposerName = myUsernameRef.current;
-    return commitBoardState((parsed) => {
+    return commitBoardState((parsed, session) => {
       if (parsed.timerVote) return null;
       const serverCurrent = isClue ? parsed.clueTimer : parsed.guessTimer;
       const stillSame = isClue
@@ -1839,7 +1896,7 @@ export default function GameRoom() {
         status: 'open',
       };
       if (voteReachesThreshold(vote, onlinePlayersRef.current)) {
-        return withPassedVote(parsed, vote);
+        return withPassedVote(parsed, vote, session);
       }
       return {
         ...parsed,
@@ -1851,13 +1908,13 @@ export default function GameRoom() {
 
   const castTimerVote = (choice) => {
     if (choice !== 'for' && choice !== 'against') return;
-    return commitBoardState((parsed) => {
+    return commitBoardState((parsed, session) => {
       const vote = parsed.timerVote;
       if (!vote || vote.status !== 'open') return null;
       if (vote.votes[CLIENT_ID] === choice) return null;
       const nextVote = { ...vote, votes: { ...vote.votes, [CLIENT_ID]: choice } };
       if (voteReachesThreshold(nextVote, onlinePlayersRef.current)) {
-        return withPassedVote(parsed, nextVote);
+        return withPassedVote(parsed, nextVote, session);
       }
       return {
         ...parsed,
@@ -1867,20 +1924,20 @@ export default function GameRoom() {
     });
   };
 
-  const passTimerVoteIfThreshold = () => commitBoardState((parsed) => {
+  const passTimerVoteIfThreshold = () => commitBoardState((parsed, session) => {
     const vote = parsed.timerVote;
     if (!vote || vote.status !== 'open') return null;
     if (!voteReachesThreshold(vote, onlinePlayersRef.current)) return null;
-    return withPassedVote(parsed, vote);
+    return withPassedVote(parsed, vote, session);
   });
 
-  const expireTimerVote = () => commitBoardState((parsed) => {
+  const expireTimerVote = () => commitBoardState((parsed, session) => {
     const vote = parsed.timerVote;
     if (!vote || vote.status !== 'open' || !vote.startedAt) return null;
     const elapsed = (getServerNowMs() - Date.parse(vote.startedAt)) / 1000;
     if (elapsed < TIMER_VOTE_SECONDS) return null;
     if (voteReachesThreshold(vote, onlinePlayersRef.current)) {
-      return withPassedVote(parsed, vote);
+      return withPassedVote(parsed, vote, session);
     }
     return {
       ...parsed,
@@ -2395,10 +2452,19 @@ export default function GameRoom() {
 
     playReadyBtnPulse();
     await measureServerTimeOffset();
+
+    const { data: row, error: rowError } = await supabase
+      .from('game_sessions')
+      .select('board_state, current_word, game_status')
+      .eq('id', sessionId)
+      .single();
+    if (rowError || !row || row.game_status !== 'in_round') return;
+    if (String(keywordText(row.current_word) ?? '').trim() !== expectedText) return;
+
     const baseWord =
-      typeof currentWord === 'object' && currentWord
-        ? currentWord
-        : { text: currentWord };
+      typeof row.current_word === 'object' && row.current_word
+        ? row.current_word
+        : { text: expectedText };
 
     await supabase
       .from('game_sessions')
@@ -2408,6 +2474,7 @@ export default function GameRoom() {
           ...baseWord,
           text: expectedText,
           guesserTurnStartedAt: getServerNowIso(),
+          guessPhaseLimit: parseBoardState(row.board_state).guessTimer,
           timedOut: false,
           gaveUp: false,
         },
@@ -2583,7 +2650,7 @@ export default function GameRoom() {
     try {
       const { data: sessionData, error: fetchError } = await supabase
         .from('game_sessions')
-        .select('word_list, player_word_counts, current_word, current_guesser_id, game_status')
+        .select('word_list, player_word_counts, current_word, current_guesser_id, game_status, board_state')
         .eq('id', sessionId)
         .single();
 
@@ -2642,7 +2709,10 @@ export default function GameRoom() {
       const { data: updated, error } = await applySkipUpdate({
         game_status: 'in_round',
         current_guesser_id: pick.chosenGuesser.key,
-        current_word: beginCluePhase(pick.selectedWord),
+        current_word: beginCluePhase(
+          pick.selectedWord,
+          parseBoardState(sessionData.board_state).clueTimer
+        ),
         submitted_clues: [],
         invalid_clues: [],
         submitted_guess: null,
@@ -2966,7 +3036,7 @@ export default function GameRoom() {
                     {guessPhaseTitle}
                   </span>
                 </div>
-                {!showRoundResult && !isInfiniteGuessTimer(guessTimer) && (
+                {!showRoundResult && !isInfiniteGuessTimer(activeGuessLimit) && (
                   <div
                     className={`guess-countdown ${guessCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${guessCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
                     role="timer"
@@ -3227,7 +3297,7 @@ export default function GameRoom() {
                         : 'Give a Clue'}
                   </span>
                 </div>
-                {!isInfiniteGuessTimer(clueTimer) && !cluePhaseClosed ? (
+                {!isInfiniteGuessTimer(activeClueLimit) && !cluePhaseClosed ? (
                   <div
                     className={`guess-countdown ${clueCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${clueCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
                     role="timer"
