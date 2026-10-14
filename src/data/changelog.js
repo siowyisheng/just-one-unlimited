@@ -34,7 +34,6 @@ export const releases = [
       'Feature: Players can expand Past Keywords and copy the image to clipboard or download it.',
       'Feature: Players can vote in Settings to change guesser time limits.',
       'Feature: Players can vote in Settings to add/change cluegiver time limits.',
-      'Bugfix: A passed timer vote no longer changes the countdown already running. It applies the next time that phase starts.',
       'Bugfix: Players can no longer see duplicate clues during clue-giving.',
       'UIUX: Its easier to read longer keywords at round end.',
       'UIUX: Updated page title and favicon.',
