@@ -267,9 +267,9 @@ export default function ClueCardsGrid({
         );
 
         const outOfTimeStatus = isOutOfTime ? (
-          <p className="mt-1.5 inline-flex whitespace-nowrap text-[9px] font-extrabold bg-amber-500/15 text-amber-200 border border-amber-500/35 px-1.5 py-0.5 rounded uppercase tracking-wider">
+          <span className="absolute top-2 right-2 whitespace-nowrap text-[9px] font-extrabold bg-amber-500/15 text-amber-200 border border-amber-500/35 px-1.5 py-0.5 rounded uppercase tracking-wider">
             OUT OF TIME
-          </p>
+          </span>
         ) : null;
 
         const statusBadge = isManuallyHidden ? (
