@@ -28,38 +28,10 @@ export const currentVersion = '0.3.4';
  */
 export const releases = [
   {
-    version: '0.3.4',
-    date: '2026-10-14',
-    changes: [
-      'Bugfix: Starting a guess-timer or clue-timer vote selects yes for the player who started it.',
-    ],
-  },
-  {
-    version: '0.3.3',
-    date: '2026-10-14',
-    changes: [
-      'UIUX: During Check Clues, the guesser sees a timed-out clue as the full long dash with an OUT OF TIME status.',
-    ],
-  },
-  {
-    version: '0.3.2',
-    date: '2026-10-14',
-    changes: [
-      'Feature: Clue givers who run out of time submit a hidden long dash marked OUT OF TIME.',
-    ],
-  },
-  {
-    version: '0.3.1',
-    date: '2026-10-14',
-    changes: [
-      'Bugfix: Starting a guess-timer or clue-timer vote counts as a yes from the player who started it.',
-    ],
-  },
-  {
     version: '0.3.0',
     date: '2026-10-14',
     changes: [
-      'Feature: Players can focus on Past Keywords and save the memories.',
+      'Feature: Players can expand Past Keywords and copy the image to clipboard or download it.',
       'Feature: Players can vote in Settings to change guesser time limits.',
       'Feature: Players can vote in Settings to add/change cluegiver time limits.',
       'Bugfix: A passed timer vote no longer changes the countdown already running. It applies the next time that phase starts.',
