@@ -41,6 +41,7 @@ export const releases = [
       'Feature: Players can focus on Past Keywords and save the memories.',
       'Feature: Players can vote in Settings to change guesser time limits.',
       'Feature: Players can vote in Settings to add/change cluegiver time limits.',
+      'Bugfix: A passed timer vote no longer changes the countdown already running. It applies the next time that phase starts.',
       'Bugfix: Players can no longer see duplicate clues during clue-giving.',
       'UIUX: Its easier to read longer keywords at round end.',
       'UIUX: Players now hear accelerating beeps when their guesser/clue-giving timer is running out.',

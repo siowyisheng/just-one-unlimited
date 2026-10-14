@@ -26,6 +26,19 @@ export const clueTimersEqual = (a, b) => normalizeClueTimer(a) === normalizeClue
 
 export const timerVoteTarget = (vote) => (vote?.target === 'clue' ? 'clue' : 'guess');
 
+// Limit locked onto current_word when a phase starts. Undefined means the
+// phase has not been pinned yet, so callers fall back to the room setting.
+export const phaseTimerLimitOf = (word, key) => {
+  if (!word || typeof word !== 'object' || !Object.prototype.hasOwnProperty.call(word, key)) {
+    return undefined;
+  }
+  const value = word[key];
+  if (value === 'infinity') return 'infinity';
+  const n = Number(value);
+  if (GUESS_TIMER_OPTIONS.includes(n)) return n;
+  return undefined;
+};
+
 export const normalizeTimerVote = (raw) => {
   if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string') return null;
   const status = raw.status === 'passed' ? 'passed' : raw.status === 'open' ? 'open' : null;
