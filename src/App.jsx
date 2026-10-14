@@ -13,7 +13,19 @@ import ClueCardsGrid, {
 import ClueRulesExpander from './components/ClueRulesExpander';
 import FeedbackWidget from './components/FeedbackWidget';
 import VersionChangelogWidget from './components/VersionChangelogWidget';
+import RoomSettings from './components/RoomSettings';
 import { STOCK_KEYWORDS } from './data/stockKeywords';
+import {
+  DEFAULT_GUESS_TIMER,
+  GUESS_TIMEOUT_LEEWAY_SECONDS,
+  TIMER_VOTE_RESULT_MS,
+  TIMER_VOTE_SECONDS,
+  guessTimersEqual,
+  isInfiniteGuessTimer,
+  normalizeGuessTimer,
+  normalizeTimerVote,
+  voteReachesThreshold,
+} from './guessTimer';
 
 /** Mid-round sibling card: keyword entry below the phase card (no status ping). */
 function AddMoreKeywordsCard(props) {
@@ -179,9 +191,8 @@ const LOSS_PHRASES = [
   'BIG WHIFF!',
 ];
 
-// Guessing-phase hard limit: UI counts 30→0; authoritative loss at 31s (1s leeway).
-const GUESS_COUNTDOWN_SECONDS = 30;
-const GUESS_TIMEOUT_SECONDS = 31;
+// Guessing-phase limit lives on the room (default 30s). UI counts limit→0;
+// authoritative loss is limit + GUESS_TIMEOUT_LEEWAY_SECONDS. "infinity" skips both.
 
 // Clue-review: delay before READY is clickable (client-local).
 const READY_FOR_GUESSER_DELAY_SECONDS = 3;
@@ -198,7 +209,9 @@ const isGuessRoundGaveUp = (word) =>
   Boolean(typeof word === 'object' && word && word.gaveUp);
 
 // board_state: legacy array of { text, correct }, or
-// { keywords: [...], playerStats: { [playerKey]: { cluesGiven, successfulClues, guessesMade, correctGuesses } } }.
+// { keywords, playerStats, guessTimerSeconds, timerVote, roomRevision }.
+// roomRevision is a compare-and-swap token so timer votes and round advances
+// do not overwrite each other.
 const emptyPlayerStat = () => ({
   cluesGiven: 0,
   successfulClues: 0,
@@ -206,26 +219,53 @@ const emptyPlayerStat = () => ({
   correctGuesses: 0,
 });
 
+const emptyBoardState = () => ({
+  keywords: [],
+  playerStats: {},
+  guessTimer: DEFAULT_GUESS_TIMER,
+  timerVote: null,
+  roomRevision: 0,
+});
+
 const parseBoardState = (raw) => {
   if (Array.isArray(raw)) {
-    return { keywords: raw, playerStats: {} };
+    return { ...emptyBoardState(), keywords: raw };
   }
   if (raw && typeof raw === 'object') {
+    const revision = Number(raw.roomRevision);
     return {
       keywords: Array.isArray(raw.keywords) ? raw.keywords : [],
       playerStats:
         raw.playerStats && typeof raw.playerStats === 'object' && !Array.isArray(raw.playerStats)
           ? raw.playerStats
           : {},
+      guessTimer: normalizeGuessTimer(
+        Object.prototype.hasOwnProperty.call(raw, 'guessTimerSeconds')
+          ? raw.guessTimerSeconds
+          : DEFAULT_GUESS_TIMER
+      ),
+      timerVote: normalizeTimerVote(raw.timerVote),
+      roomRevision: Number.isFinite(revision) ? revision : 0,
     };
   }
-  return { keywords: [], playerStats: {} };
+  return emptyBoardState();
 };
 
-const serializeBoardState = (keywords, playerStats) => ({
-  keywords: Array.isArray(keywords) ? keywords : [],
-  playerStats: playerStats && typeof playerStats === 'object' ? playerStats : {},
+const serializeBoardState = (parsed) => ({
+  keywords: Array.isArray(parsed?.keywords) ? parsed.keywords : [],
+  playerStats: parsed?.playerStats && typeof parsed.playerStats === 'object' ? parsed.playerStats : {},
+  guessTimerSeconds: normalizeGuessTimer(parsed?.guessTimer),
+  timerVote: parsed?.timerVote ?? null,
+  roomRevision: Number.isFinite(Number(parsed?.roomRevision)) ? Number(parsed.roomRevision) : 0,
 });
+
+// Missing roomRevision (legacy rows and arrays) matches revision 0.
+const filterBoardRevision = (query, revision) => {
+  if (!revision) {
+    return query.or('board_state->>roomRevision.is.null,board_state->>roomRevision.eq.0');
+  }
+  return query.eq('board_state->>roomRevision', String(revision));
+};
 
 const normalizeClueText = (text) => String(text ?? '').trim().toLowerCase();
 
@@ -386,6 +426,8 @@ export default function GameRoom() {
   // array of { text, correct } or { keywords, playerStats } (see parseBoardState).
   const [playedKeywords, setPlayedKeywords] = useState([]);
   const [playerStats, setPlayerStats] = useState({});
+  const [guessTimer, setGuessTimer] = useState(DEFAULT_GUESS_TIMER);
+  const [timerVote, setTimerVote] = useState(null);
   const advancingRoundRef = useRef(false);
   const skipKeywordInFlightRef = useRef(false);
   // Hover (desktop) / first-tap (mobile) reveal for the quiet skip affordance.
@@ -528,7 +570,7 @@ export default function GameRoom() {
   const flashClearTokenRef = useRef(0);
 
   // Timer State
-  const [guessCountdownSeconds, setGuessCountdownSeconds] = useState(GUESS_COUNTDOWN_SECONDS);
+  const [guessCountdownSeconds, setGuessCountdownSeconds] = useState(DEFAULT_GUESS_TIMER);
   const [guessCountdownProgress, setGuessCountdownProgress] = useState(1);
   const [clueWaitSeconds, setClueWaitSeconds] = useState(0);
   const [readyDelaySeconds, setReadyDelaySeconds] = useState(READY_FOR_GUESSER_DELAY_SECONDS);
@@ -612,6 +654,14 @@ export default function GameRoom() {
   roundWonRef.current = roundWon;
   const submittedCluesRef = useRef(submittedClues);
   submittedCluesRef.current = submittedClues;
+  const guessTimerRef = useRef(guessTimer);
+  guessTimerRef.current = guessTimer;
+  const timerVoteRef = useRef(timerVote);
+  timerVoteRef.current = timerVote;
+  const boardWriteChainRef = useRef(Promise.resolve());
+  const expireTimerVoteRef = useRef(async () => {});
+  const passTimerVoteRef = useRef(async () => {});
+  const clearPassedTimerVoteRef = useRef(async () => {});
   const startNextRoundRef = useRef(null);
   const startRoundInFlightRef = useRef(false);
 
@@ -790,22 +840,26 @@ export default function GameRoom() {
   fireGuessTimeoutRef.current = fireGuessTimeout;
 
   // Shared countdown from current_word.guesserTurnStartedAt (set on READY).
-  // UI: 30→0. Loss write: only after GUESS_TIMEOUT_SECONDS (31).
+  // UI: limit→0. Loss write: only after limit + leeway. No timer when unlimited.
   useEffect(() => {
+    const limit = guessTimer;
+    const infinite = isInfiniteGuessTimer(limit);
+
     if (
+      infinite ||
       gameStatus !== 'guesser_turn' ||
       roundWon ||
       submittedGuess ||
       roundTimedOut ||
       roundGaveUp
     ) {
-      setGuessCountdownSeconds(GUESS_COUNTDOWN_SECONDS);
+      setGuessCountdownSeconds(infinite ? 0 : limit);
       setGuessCountdownProgress(1);
       return undefined;
     }
 
     if (!guesserTurnStartedAt) {
-      setGuessCountdownSeconds(GUESS_COUNTDOWN_SECONDS);
+      setGuessCountdownSeconds(limit);
       setGuessCountdownProgress(1);
       return undefined;
     }
@@ -815,17 +869,14 @@ export default function GameRoom() {
 
     const tick = () => {
       const elapsedSec = (getServerNowMs() - startedMs) / 1000;
-      const remaining = Math.max(
-        0,
-        GUESS_COUNTDOWN_SECONDS - Math.floor(elapsedSec)
-      );
+      const remaining = Math.max(0, limit - Math.floor(elapsedSec));
       setGuessCountdownSeconds(remaining);
       setGuessCountdownProgress(
-        Math.max(0, Math.min(1, 1 - elapsedSec / GUESS_COUNTDOWN_SECONDS))
+        Math.max(0, Math.min(1, 1 - elapsedSec / limit))
       );
 
       if (
-        elapsedSec >= GUESS_TIMEOUT_SECONDS &&
+        elapsedSec >= limit + GUESS_TIMEOUT_LEEWAY_SECONDS &&
         !isGuessRoundGaveUp(currentWordRef.current) &&
         hasVisibleGuessClues()
       ) {
@@ -843,6 +894,7 @@ export default function GameRoom() {
     roundTimedOut,
     roundGaveUp,
     guesserTurnStartedAt,
+    guessTimer,
   ]);
 
   // Ticking timer for the clue-giving phase, shown to every player.
@@ -953,6 +1005,8 @@ export default function GameRoom() {
           const parsed = parseBoardState(data.board_state);
           setPlayedKeywords(parsed.keywords);
           setPlayerStats(parsed.playerStats);
+          setGuessTimer(parsed.guessTimer);
+          setTimerVote(parsed.timerVote);
         }
 
         if (data.game_status) {
@@ -1158,6 +1212,8 @@ export default function GameRoom() {
         const parsed = parseBoardState(data.board_state);
         setPlayedKeywords(parsed.keywords);
         setPlayerStats(parsed.playerStats);
+        setGuessTimer(parsed.guessTimer);
+        setTimerVote(parsed.timerVote);
       }
       setSubmittedGuess(data.submitted_guess ?? null);
       const alreadyWon = Boolean(data.round_won);
@@ -1195,6 +1251,7 @@ export default function GameRoom() {
       ? String(playedEntry.text ?? '').trim()
       : null;
 
+    for (let attempt = 0; attempt < 4; attempt += 1) {
     // 1. Fetch counts, played history, and (when advancing) the server word pool
     // plus round fields needed to score durable player stats.
     const { data: sessionData } = await supabase
@@ -1206,9 +1263,9 @@ export default function GameRoom() {
       .single();
 
     const counts = sessionData?.player_word_counts || {};
-    const { keywords: existingPlayed, playerStats: existingPlayerStats } = parseBoardState(
-      sessionData?.board_state
-    );
+    const parsedBoard = parseBoardState(sessionData?.board_state);
+    const existingPlayed = parsedBoard.keywords;
+    const existingPlayerStats = parsedBoard.playerStats;
 
     // Prefer the server word list when retiring a keyword so racing clients
     // share one pool (local wordList can lag a concurrent skip/advance).
@@ -1240,7 +1297,12 @@ export default function GameRoom() {
       }
     }
 
-    const nextBoardState = serializeBoardState(nextPlayed, nextPlayerStats);
+    const nextBoardState = serializeBoardState({
+      ...parsedBoard,
+      keywords: nextPlayed,
+      playerStats: nextPlayerStats,
+      roomRevision: parsedBoard.roomRevision + 1,
+    });
 
     // Another client already advanced past this keyword — no-op.
     if (expectedKeywordText) {
@@ -1260,7 +1322,21 @@ export default function GameRoom() {
       if (expectedKeywordText) {
         query = query.eq('current_word->>text', expectedKeywordText);
       }
-      return query.select('id');
+      return filterBoardRevision(query, parsedBoard.roomRevision).select('id');
+    };
+
+    // Empty update is either a lost keyword CAS or a lost board revision CAS.
+    // Retry only while this keyword is still current.
+    const advanceOutcome = async (updatedRows) => {
+      if (updatedRows?.length) return 'ok';
+      if (!expectedKeywordText) return 'retry';
+      const { data: latest } = await supabase
+        .from('game_sessions')
+        .select('current_word')
+        .eq('id', sessionId)
+        .single();
+      const serverText = String(keywordText(latest?.current_word) ?? '').trim();
+      return serverText === expectedKeywordText ? 'retry' : 'lost';
     };
 
     if (pick.kind === 'game_over') {
@@ -1273,7 +1349,9 @@ export default function GameRoom() {
         console.error('Error ending game after next keyword:', error);
         return;
       }
-      if (expectedKeywordText && !updated?.length) return;
+      const outcome = await advanceOutcome(updated);
+      if (outcome === 'retry') continue;
+      if (outcome === 'lost') return;
       if (playedEntry) {
         setPlayedKeywords(nextPlayed);
         setPlayerStats(nextPlayerStats);
@@ -1298,14 +1376,215 @@ export default function GameRoom() {
       console.error('Error advancing to next keyword:', error);
       return;
     }
-    if (expectedKeywordText && !updated?.length) return;
+    const outcome = await advanceOutcome(updated);
+    if (outcome === 'retry') continue;
+    if (outcome === 'lost') return;
 
     if (playedEntry) {
       setPlayedKeywords(nextPlayed);
       setPlayerStats(nextPlayerStats);
     }
+    return;
+    }
   };
   startNextRoundRef.current = startNextRound;
+
+  const applyParsedBoard = (raw) => {
+    const parsed = parseBoardState(raw);
+    setPlayedKeywords(parsed.keywords);
+    setPlayerStats(parsed.playerStats);
+    setGuessTimer(parsed.guessTimer);
+    setTimerVote(parsed.timerVote);
+    return parsed;
+  };
+
+  // Read-modify-write board_state under roomRevision so votes cannot clobber
+  // a round advance (and the reverse). mutator returns the next parsed board,
+  // or null to leave the row alone.
+  const commitBoardState = (mutator) => {
+    const run = async () => {
+      if (!sessionId) return null;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const { data, error } = await supabase
+          .from('game_sessions')
+          .select('board_state')
+          .eq('id', sessionId)
+          .single();
+        if (error || !data) {
+          console.error('Error reading room settings:', error);
+          return null;
+        }
+        const parsed = parseBoardState(data.board_state);
+        const next = mutator(parsed);
+        if (!next) return parsed;
+        const { data: updated, error: writeError } = await filterBoardRevision(
+          supabase
+            .from('game_sessions')
+            .update({ board_state: serializeBoardState(next) })
+            .eq('id', sessionId),
+          parsed.roomRevision
+        ).select('board_state');
+        if (writeError) {
+          console.error('Error saving room settings:', writeError);
+          return null;
+        }
+        if (updated?.length) {
+          return applyParsedBoard(updated[0].board_state);
+        }
+      }
+      return null;
+    };
+
+    const queued = boardWriteChainRef.current.then(run, run);
+    boardWriteChainRef.current = queued.then(() => {}, () => {});
+    return queued;
+  };
+
+  const proposeGuessTimer = (nextTimer) => {
+    const normalized = normalizeGuessTimer(nextTimer);
+    if (guessTimersEqual(normalized, guessTimerRef.current)) return;
+    if (timerVoteRef.current) return;
+    const voteId = `vote_${CLIENT_ID}_${Date.now()}`;
+    const proposerName = myUsernameRef.current;
+    return commitBoardState((parsed) => {
+      if (parsed.timerVote) return null;
+      if (guessTimersEqual(parsed.guessTimer, normalized)) return null;
+      return {
+        ...parsed,
+        roomRevision: parsed.roomRevision + 1,
+        timerVote: {
+          id: voteId,
+          proposerKey: CLIENT_ID,
+          proposerName,
+          from: parsed.guessTimer,
+          to: normalized,
+          startedAt: getServerNowIso(),
+          resolvedAt: null,
+          votes: {},
+          status: 'open',
+        },
+      };
+    });
+  };
+
+  const castTimerVote = (choice) => {
+    if (choice !== 'for' && choice !== 'against') return;
+    return commitBoardState((parsed) => {
+      const vote = parsed.timerVote;
+      if (!vote || vote.status !== 'open') return null;
+      if (vote.votes[CLIENT_ID] === choice) return null;
+      const nextVote = { ...vote, votes: { ...vote.votes, [CLIENT_ID]: choice } };
+      if (voteReachesThreshold(nextVote, onlinePlayersRef.current)) {
+        return {
+          ...parsed,
+          roomRevision: parsed.roomRevision + 1,
+          guessTimer: vote.to,
+          timerVote: {
+            ...nextVote,
+            status: 'passed',
+            resolvedAt: getServerNowIso(),
+          },
+        };
+      }
+      return {
+        ...parsed,
+        roomRevision: parsed.roomRevision + 1,
+        timerVote: nextVote,
+      };
+    });
+  };
+
+  const passTimerVoteIfThreshold = () => commitBoardState((parsed) => {
+    const vote = parsed.timerVote;
+    if (!vote || vote.status !== 'open') return null;
+    if (!voteReachesThreshold(vote, onlinePlayersRef.current)) return null;
+    return {
+      ...parsed,
+      roomRevision: parsed.roomRevision + 1,
+      guessTimer: vote.to,
+      timerVote: {
+        ...vote,
+        status: 'passed',
+        resolvedAt: getServerNowIso(),
+      },
+    };
+  });
+
+  const expireTimerVote = () => commitBoardState((parsed) => {
+    const vote = parsed.timerVote;
+    if (!vote || vote.status !== 'open' || !vote.startedAt) return null;
+    const elapsed = (getServerNowMs() - Date.parse(vote.startedAt)) / 1000;
+    if (elapsed < TIMER_VOTE_SECONDS) return null;
+    if (voteReachesThreshold(vote, onlinePlayersRef.current)) {
+      return {
+        ...parsed,
+        roomRevision: parsed.roomRevision + 1,
+        guessTimer: vote.to,
+        timerVote: {
+          ...vote,
+          status: 'passed',
+          resolvedAt: getServerNowIso(),
+        },
+      };
+    }
+    return {
+      ...parsed,
+      roomRevision: parsed.roomRevision + 1,
+      timerVote: null,
+    };
+  });
+
+  const clearPassedTimerVote = () => commitBoardState((parsed) => {
+    const vote = parsed.timerVote;
+    if (!vote || vote.status !== 'passed' || !vote.resolvedAt) return null;
+    if (getServerNowMs() - Date.parse(vote.resolvedAt) < TIMER_VOTE_RESULT_MS) return null;
+    return {
+      ...parsed,
+      roomRevision: parsed.roomRevision + 1,
+      timerVote: null,
+    };
+  });
+
+  expireTimerVoteRef.current = expireTimerVote;
+  passTimerVoteRef.current = passTimerVoteIfThreshold;
+  clearPassedTimerVoteRef.current = clearPassedTimerVote;
+
+  useEffect(() => {
+    if (!timerVote || timerVote.status !== 'open' || !timerVote.startedAt) return undefined;
+    const startedMs = Date.parse(timerVote.startedAt);
+    if (!Number.isFinite(startedMs)) return undefined;
+    let pending = false;
+    const tick = () => {
+      if (pending) return;
+      if ((getServerNowMs() - startedMs) / 1000 < TIMER_VOTE_SECONDS) return;
+      pending = true;
+      Promise.resolve(expireTimerVoteRef.current()).finally(() => {
+        pending = false;
+      });
+    };
+    tick();
+    const interval = window.setInterval(tick, 200);
+    return () => window.clearInterval(interval);
+  }, [timerVote]);
+
+  useEffect(() => {
+    if (!timerVote || timerVote.status !== 'open') return undefined;
+    if (voteReachesThreshold(timerVote, onlinePlayers)) {
+      passTimerVoteRef.current();
+    }
+    return undefined;
+  }, [timerVote, onlinePlayers]);
+
+  useEffect(() => {
+    if (!timerVote || timerVote.status !== 'passed' || !timerVote.resolvedAt) return undefined;
+    const resolvedMs = Date.parse(timerVote.resolvedAt);
+    if (!Number.isFinite(resolvedMs)) return undefined;
+    const delay = Math.max(0, TIMER_VOTE_RESULT_MS - (getServerNowMs() - resolvedMs));
+    const timeout = window.setTimeout(() => {
+      clearPassedTimerVoteRef.current();
+    }, delay);
+    return () => window.clearTimeout(timeout);
+  }, [timerVote]);
 
   const copySessionLink = async () => {
     if (!sessionId) return;
@@ -2324,7 +2603,7 @@ export default function GameRoom() {
                     {guessPhaseTitle}
                   </span>
                 </div>
-                {!showRoundResult && (
+                {!showRoundResult && !isInfiniteGuessTimer(guessTimer) && (
                   <div
                     className={`guess-countdown ${guessCountdownSeconds <= 5 ? 'guess-countdown--urgent' : ''} ${guessCountdownSeconds === 0 ? 'guess-countdown--zero' : ''}`}
                     role="timer"
@@ -2958,6 +3237,15 @@ export default function GameRoom() {
         based on Just One designed by Ludovic Roudy & Bruno Sautter
       </a>
 
+      <RoomSettings
+        guessTimer={guessTimer}
+        timerVote={timerVote}
+        onlinePlayers={onlinePlayers}
+        myPlayerKey={CLIENT_ID}
+        getPlayerName={getPlayerName}
+        onPropose={proposeGuessTimer}
+        onCastVote={castTimerVote}
+      />
       <FeedbackWidget />
       <VersionChangelogWidget />
 
