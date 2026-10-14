@@ -372,6 +372,30 @@ const cluePhaseStartedAtOf = (word) =>
 const isCluePhaseTimedOut = (word) =>
   Boolean(typeof word === 'object' && word && word.clueTimedOut);
 
+// Placeholder submitted for a clue giver who misses a voted clue-giving limit.
+// Force-hidden like an exact duplicate: the guesser never sees it, and check-clues cannot restore it.
+const OUT_OF_TIME_CLUE = '\u2014';
+
+const isOutOfTimeClue = (clue) => Boolean(clue?.outOfTime);
+
+const appendOutOfTimeClues = (clues, givers) => {
+  const prev = Array.isArray(clues) ? clues : [];
+  const have = new Set(prev.map((clue) => clue?.playerKey).filter(Boolean));
+  const missing = (Array.isArray(givers) ? givers : []).filter(
+    (player) => player?.key && !have.has(player.key)
+  );
+  if (missing.length === 0) return prev;
+  return [
+    ...prev,
+    ...missing.map((player) => ({
+      clue: OUT_OF_TIME_CLUE,
+      playerKey: player.key,
+      username: player.username || 'Anonymous',
+      outOfTime: true,
+    })),
+  ];
+};
+
 // Pins the room's clue limit onto this keyword so a later vote cannot move
 // the countdown that is already running.
 const beginCluePhase = (word, limit) => {
@@ -456,7 +480,7 @@ const normalizeClueText = (text) => String(text ?? '').trim().toLowerCase();
 const exactDuplicateClueSet = (clues) => {
   const counts = {};
   (Array.isArray(clues) ? clues : []).forEach((c) => {
-    if (!c?.clue) return;
+    if (!c?.clue || isOutOfTimeClue(c)) return;
     const norm = normalizeClueText(c.clue);
     counts[norm] = (counts[norm] || 0) + 1;
   });
@@ -501,7 +525,8 @@ const accumulateRoundPlayerStats = (
   (Array.isArray(clues) ? clues : []).forEach((c) => {
     if (!c?.playerKey || !c?.clue) return;
     const norm = normalizeClueText(c.clue);
-    const successful = !exactDupes.has(norm) && !invalid.includes(norm);
+    const successful =
+      !isOutOfTimeClue(c) && !exactDupes.has(norm) && !invalid.includes(norm);
     bump(c.playerKey, {
       cluesGiven: 1,
       successfulClues: successful ? 1 : 0,
@@ -804,7 +829,7 @@ export default function GameRoom() {
   const getAutoDeduplicatedClues = (clues) => {
     const counts = {};
     clues.forEach((c) => {
-      if (!c?.clue) return;
+      if (!c?.clue || isOutOfTimeClue(c)) return;
       const norm = normalizeClue(c.clue);
       counts[norm] = (counts[norm] || 0) + 1;
     });
@@ -988,7 +1013,7 @@ export default function GameRoom() {
     const invalid = invalidCluesRef.current;
     const exactDupes = getAutoDeduplicatedClues(clues);
     return clues.some((c) => {
-      if (!c?.clue) return false;
+      if (!c?.clue || isOutOfTimeClue(c)) return false;
       const norm = normalizeClue(c.clue);
       return !invalid.includes(norm) && !exactDupes.has(norm);
     });
@@ -1085,37 +1110,88 @@ export default function GameRoom() {
     }
   };
 
-  // Clue-giving hard stop: lock further clues and open check-clues.
+  // Clue-giving hard stop: lock further clues, submit a long dash for anyone
+  // still missing, and open check-clues. Those dashes are force-hidden.
   const fireClueTimeout = async () => {
     if (!sessionId || clueTimeoutInFlightRef.current) return;
     if (gameStatusRef.current !== 'in_round') return;
-    const giverCount = onlinePlayersRef.current.filter(
-      (player) => player.key !== currentGuesserIdRef.current
-    ).length;
-    if (giverCount === 0 || cluesAlreadyComplete()) return;
     const word = currentWordRef.current;
-    if (typeof word !== 'object' || !word || word.clueTimedOut) return;
-    if (!word.cluePhaseStartedAt) return;
+    if (typeof word !== 'object' || !word || !word.cluePhaseStartedAt) return;
     const expectedText = String(keywordText(word) ?? '').trim();
     if (!expectedText) return;
+    const localGivers = onlinePlayersRef.current.filter(
+      (player) => player.key !== currentGuesserIdRef.current
+    );
+    if (localGivers.length === 0) return;
+    const localMissing = localGivers.some(
+      (player) => !submittedCluesRef.current.some((clue) => clue?.playerKey === player.key)
+    );
+    // Everyone already submitted in time — leave the phase open until the
+    // normal "all clues in" path. A timed-out round may still need dashes.
+    if (!localMissing && !word.clueTimedOut) return;
 
     clueTimeoutInFlightRef.current = true;
     try {
-      const { data, error } = await supabase
-        .from('game_sessions')
-        .update({ current_word: { ...word, clueTimedOut: true } })
-        .eq('id', sessionId)
-        .eq('game_status', 'in_round')
-        .eq('current_word->>text', expectedText)
-        .select('id');
-      if (error) {
-        console.error('Error recording clue timeout:', error);
-        return;
-      }
-      if (data?.length) {
-        setCurrentWord((prev) => (
-          typeof prev === 'object' && prev ? { ...prev, clueTimedOut: true } : prev
-        ));
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const { data: row, error: readError } = await supabase
+          .from('game_sessions')
+          .select('submitted_clues, game_status, current_word, current_guesser_id')
+          .eq('id', sessionId)
+          .maybeSingle();
+
+        if (readError) {
+          console.error('Error recording clue timeout:', readError);
+          return;
+        }
+        if (!row || row.game_status !== 'in_round') return;
+        if (String(keywordText(row.current_word) ?? '').trim() !== expectedText) return;
+
+        const givers = onlinePlayersRef.current.filter(
+          (player) => player.key && player.key !== row.current_guesser_id
+        );
+        if (givers.length === 0) return;
+
+        const prev = Array.isArray(row.submitted_clues) ? row.submitted_clues : [];
+        const nextClues = appendOutOfTimeClues(prev, givers);
+        const alreadyTimedOut = isCluePhaseTimedOut(row.current_word);
+        const cluesChanged = nextClues.length !== prev.length;
+        // Nothing missing. If the round is not timed out yet, every giver
+        // submitted in time — do not close the phase from this path.
+        if (!cluesChanged) return;
+
+        const patch = {};
+        if (!alreadyTimedOut) {
+          patch.current_word = { ...row.current_word, clueTimedOut: true };
+        }
+        if (cluesChanged) patch.submitted_clues = nextClues;
+
+        let query = supabase
+          .from('game_sessions')
+          .update(patch)
+          .eq('id', sessionId)
+          .eq('game_status', 'in_round')
+          .eq('current_word->>text', expectedText);
+        if (cluesChanged) query = query.eq('submitted_clues', JSON.stringify(prev));
+        if (!alreadyTimedOut) {
+          query = query.or('current_word->>clueTimedOut.is.null,current_word->>clueTimedOut.eq.false');
+        }
+
+        const { data, error } = await query.select('id');
+        if (error) {
+          console.error('Error recording clue timeout:', error);
+          return;
+        }
+        if (data?.length) {
+          if (!alreadyTimedOut) {
+            setCurrentWord((prevWord) => (
+              typeof prevWord === 'object' && prevWord
+                ? { ...prevWord, clueTimedOut: true }
+                : prevWord
+            ));
+          }
+          if (cluesChanged) setSubmittedClues(nextClues);
+          return;
+        }
       }
     } finally {
       clueTimeoutInFlightRef.current = false;
@@ -1237,6 +1313,25 @@ export default function GameRoom() {
     activeClueLimit,
     currentWord,
     currentWordKey,
+    currentGuesserId,
+    submittedClues,
+    onlinePlayers,
+  ]);
+
+  // If the phase is already closed but a giver still has no clue (lost race
+  // with the timeout write), fill the long dash without waiting on the clock.
+  useEffect(() => {
+    if (gameStatus !== 'in_round' || !cluePhaseTimedOut) return;
+    const missing = onlinePlayers.some(
+      (player) =>
+        player.key !== currentGuesserId &&
+        !submittedClues.some((clue) => clue?.playerKey === player.key)
+    );
+    if (!missing) return;
+    fireClueTimeout();
+  }, [
+    gameStatus,
+    cluePhaseTimedOut,
     currentGuesserId,
     submittedClues,
     onlinePlayers,
@@ -1595,7 +1690,7 @@ export default function GameRoom() {
   const isExactDuplicateClue = (clueText, allClues) => {
     const norm = clueText.trim().toLowerCase();
     const count = allClues.filter(
-      (c) => c.clue.trim().toLowerCase() === norm
+      (c) => !isOutOfTimeClue(c) && c.clue.trim().toLowerCase() === norm
     ).length;
     return count > 1;
   };
@@ -2298,7 +2393,7 @@ export default function GameRoom() {
     if (gameStatus !== 'in_round') return;
 
     const myClue = submittedClues.find((c) => c.playerKey === CLIENT_ID);
-    if (!myClue) return;
+    if (!myClue || isOutOfTimeClue(myClue) || isCluePhaseTimedOut(currentWord)) return;
 
     const clueGiverCount = onlinePlayers.filter((p) => p.key !== currentGuesserId).length;
     if (clueGiverCount > 0 && submittedClues.length >= clueGiverCount) return;
@@ -2355,6 +2450,7 @@ export default function GameRoom() {
   const handleBonkClueGiver = (playerKey) => {
     if (!playerKey || !sessionId) return;
     if (gameStatus !== 'in_round') return;
+    if (isCluePhaseTimedOut(currentWord)) return;
     if (playerKey === CLIENT_ID) return;
     if (submittedClues.some((c) => c.playerKey === playerKey)) return;
 
@@ -2776,6 +2872,8 @@ export default function GameRoom() {
     let clue;
     if (!submitted?.clue) {
       clue = EMPTY_CLUE_PLACEHOLDER;
+    } else if (isOutOfTimeClue(submitted)) {
+      clue = submitted.clue;
     } else if (isOwn) {
       clue = submitted.clue;
     } else {
@@ -2793,7 +2891,8 @@ export default function GameRoom() {
       const isDup =
         allCluesSubmitted &&
         isExactDuplicateClue(submitted.clue, submittedClues);
-      if (isDup) hideStatus = 'duplicate';
+      if (isOutOfTimeClue(submitted)) hideStatus = 'outOfTime';
+      else if (isDup) hideStatus = 'duplicate';
       else if (allCluesSubmitted && invalidClues.includes(norm)) hideStatus = 'hidden';
     }
     return {
@@ -2895,7 +2994,7 @@ export default function GameRoom() {
 
   const exactDuplicateClues = getAutoDeduplicatedClues(submittedClues);
   const visibleClues = submittedClues.filter((c) => {
-    if (!c?.clue) return false;
+    if (!c?.clue || isOutOfTimeClue(c)) return false;
     const norm = normalizeClue(c.clue);
     return !invalidClues.includes(norm) && !exactDuplicateClues.has(norm);
   });
