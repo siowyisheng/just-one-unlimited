@@ -20,7 +20,7 @@
  */
 
 /** Displayed as `v{currentVersion}` in the bottom-right corner. */
-export const currentVersion = '0.3.4';
+export const currentVersion = '0.3.0';
 
 /**
  * Newest first. The UI lists every entry here.
